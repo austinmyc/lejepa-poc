@@ -1,0 +1,7 @@
+torch>=2.1.0
+transformers>=4.38.0
+datasets>=2.18.0
+tqdm
+wandb          # optional — only needed with --wandb flag
+umap-learn     # optional — only needed for eval_neighbors.py --umap
+matplotlib     # optional — only needed for eval_neighbors.py --umap
