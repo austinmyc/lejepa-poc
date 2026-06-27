@@ -3,3 +3,5 @@
 checkpoints/
 data_cache/
 __pycache__/
+
+wandb/

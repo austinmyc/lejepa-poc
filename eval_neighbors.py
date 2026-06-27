@@ -4,12 +4,13 @@ Nearest-neighbour evaluation for supervisor demo.
 Loads a checkpoint, encodes a set of test sentences, and shows
 the top-3 nearest neighbours for each query.
 
+Eval read-out (§3b of research plan):
+    encoder(x) → (1, L, D) → mean over L → (1, D) sequence embedding
+    The predictor is NOT used at eval time.
+
 Usage:
     python eval_neighbors.py --ckpt checkpoints/ckpt_050000.pt
-    python eval_neighbors.py --ckpt checkpoints/ckpt_050000.pt --umap  # also plot UMAP
-
-Good result: semantically similar sentences cluster together.
-Bad result (collapse): everything retrieves everything equally.
+    python eval_neighbors.py --ckpt checkpoints/ckpt_050000.pt --umap
 """
 
 import argparse
@@ -18,11 +19,10 @@ import torch.nn.functional as F
 from transformers import GPT2TokenizerFast
 
 from config import Config
-from model import LeJEPAText
+from model  import LeJEPAText
 
 
 # ── test sentences ────────────────────────────────────────────────────────────
-# Mix of semantically similar pairs so we can see whether the model clusters them.
 
 TEST_SENTENCES = [
     # science
@@ -52,21 +52,23 @@ TEST_SENTENCES = [
 @torch.no_grad()
 def encode_sentences(sentences, model, tokenizer, cfg, device):
     """
-    Encode each sentence into a single chunk embedding.
-    Sentences are truncated / padded to cfg.chunk_size tokens.
+    Encode each sentence to a single embedding via mean-pooling over tokens.
+
+    Sentences are truncated / padded to cfg.seq_len tokens.
     Returns (N, D) tensor.
     """
     model.eval()
     embs = []
     for sent in sentences:
-        ids = tokenizer.encode(sent)[:cfg.chunk_size]
-        # pad to chunk_size if shorter
-        if len(ids) < cfg.chunk_size:
-            ids = ids + [tokenizer.eos_token_id] * (cfg.chunk_size - len(ids))
-        t = torch.tensor(ids, dtype=torch.long, device=device)
-        # encode as a single chunk: (1, 1, C) → (1, 1, D)
-        emb = model.encoder(t.unsqueeze(0).unsqueeze(0))  # (1, 1, D)
-        embs.append(emb.squeeze())
+        ids = tokenizer.encode(sent)[:cfg.seq_len]
+        if len(ids) < cfg.seq_len:
+            ids = ids + [tokenizer.eos_token_id] * (cfg.seq_len - len(ids))
+
+        x   = torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, L)
+        out = model.encoder(x)   # (1, L, D)
+        emb = out.mean(dim=1)    # (1, D)  mean-pool over tokens
+        embs.append(emb.squeeze(0))
+
     return torch.stack(embs)   # (N, D)
 
 
@@ -74,14 +76,13 @@ def encode_sentences(sentences, model, tokenizer, cfg, device):
 
 def nearest_neighbours(embs, sentences, top_k=3):
     normed = F.normalize(embs.float(), dim=-1)
-    sim = normed @ normed.T   # (N, N)
+    sim    = normed @ normed.T
     print("\n" + "=" * 70)
     print("NEAREST NEIGHBOURS (cosine similarity)")
     print("=" * 70)
     for i, sent in enumerate(sentences):
-        # exclude self
         scores = sim[i].clone()
-        scores[i] = -1.0
+        scores[i] = -1.0   # exclude self
         top_idx = scores.topk(top_k).indices.tolist()
         print(f"\nQuery: {sent!r}")
         for rank, j in enumerate(top_idx, 1):
@@ -95,15 +96,13 @@ def plot_umap(embs, sentences):
     try:
         import umap
         import matplotlib.pyplot as plt
-        import numpy as np
     except ImportError:
         print("UMAP plot skipped — install umap-learn and matplotlib")
         return
 
     reducer = umap.UMAP(n_neighbors=5, min_dist=0.3, random_state=42)
-    coords = reducer.fit_transform(embs.float().cpu().numpy())
+    coords  = reducer.fit_transform(embs.float().cpu().numpy())
 
-    # colour by category (every 3 sentences)
     colours = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00"]
     labels  = ["science", "sports", "cooking", "politics", "misc"]
 
@@ -117,7 +116,7 @@ def plot_umap(embs, sentences):
             ax.annotate(sentences[j][:30] + "…", coords[j], fontsize=6, alpha=0.7)
 
     ax.legend()
-    ax.set_title("UMAP of LeJEPA chunk embeddings")
+    ax.set_title("UMAP of LeJEPA token embeddings (mean-pooled)")
     plt.tight_layout()
     plt.savefig("umap_embeddings.png", dpi=150)
     print("UMAP plot saved → umap_embeddings.png")
@@ -127,22 +126,20 @@ def plot_umap(embs, sentences):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", required=True, help="Path to checkpoint .pt file")
-    parser.add_argument("--umap", action="store_true", help="Also produce UMAP plot")
+    parser.add_argument("--ckpt", required=True)
+    parser.add_argument("--umap", action="store_true")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    ckpt = torch.load(args.ckpt, map_location=device)
-    cfg  = ckpt["config"]
-
+    ckpt  = torch.load(args.ckpt, map_location=device)
+    cfg   = ckpt["config"]
     model = LeJEPAText(cfg).to(device)
     model.load_state_dict(ckpt["model"])
     print(f"Loaded checkpoint from step {ckpt['step']}")
 
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-
-    embs = encode_sentences(TEST_SENTENCES, model, tokenizer, cfg, device)
+    embs      = encode_sentences(TEST_SENTENCES, model, tokenizer, cfg, device)
     nearest_neighbours(embs, TEST_SENTENCES)
 
     if args.umap:

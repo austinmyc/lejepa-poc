@@ -1,19 +1,24 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
 class Config:
     # ── Model ──────────────────────────────────────────────────────────────
     vocab_size: int = 50257       # GPT-2 BPE vocab
+    mask_token_id: int = 50256    # GPT-2 EOS token used as [MASK] (no dedicated mask in GPT-2 vocab)
     d_model: int = 256
     n_heads: int = 8
     enc_layers: int = 4           # bidirectional encoder layers
-    pred_layers: int = 2          # causal predictor layers
-    chunk_size: int = 64          # tokens per chunk
-    max_chunks: int = 16          # chunks per sample  →  16×64 = 1024 tokens
+    pred_layers: int = 2          # span predictor layers (lighter than encoder)
+    seq_len: int = 1024           # total tokens per sample
 
-    # ── Projection MLP ─────────────────────────────────────────────────────
-    proj_hidden: int = 2048       # hidden dim of projection MLP (768→2048→768 at full scale)
+    # ── Masking ────────────────────────────────────────────────────────────
+    # De-risk experiment (§5 of research plan) ablates three strategies:
+    #   "random" — token-level Bernoulli masking (default, fast to implement)
+    #   "span"   — contiguous span masking (planned ablation)
+    #   "block"  — mask one contiguous block (I-JEPA style)
+    mask_ratio: float = 0.15      # fraction of tokens masked; ablate 0.15, 0.30, 0.50
+    mask_strategy: str = "random" # "random" | "span" | "block"
 
     # ── SIGReg ─────────────────────────────────────────────────────────────
     lam: float = 0.05             # weight on SIGReg loss (paper default)
@@ -30,15 +35,15 @@ class Config:
     warmup_steps: int = 1_000
 
     # ── Data ───────────────────────────────────────────────────────────────
-    fake_data: bool = False       # use random tokens — no internet (smoke tests)
-    shakespeare: bool = False     # use tiny-shakespeare (~1MB) — local dev with real text
+    fake_data: bool = False       # random tokens — no downloads (smoke tests)
+    shakespeare: bool = False     # tiny-shakespeare — local dev with real text
 
     # ── Logging & checkpoints ──────────────────────────────────────────────
     log_every: int = 100
-    rank_every: int = 500         # how often to compute embedding rank
+    rank_every: int = 500
     save_every: int = 5_000
-    run_name: str = "lejepa_poc"
-    use_wandb: bool = False       # set True if wandb is configured
+    run_name: str = "lejepa_text"
+    use_wandb: bool = False
 
     # ── Paths ──────────────────────────────────────────────────────────────
     data_cache: str = "./data_cache"
