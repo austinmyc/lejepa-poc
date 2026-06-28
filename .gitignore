@@ -1,6 +1,8 @@
 .venv/
 .env
 checkpoints/
+checkpoints_mask/
+*.pt
 data_cache/
 __pycache__/
 
