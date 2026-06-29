@@ -170,6 +170,9 @@ if __name__ == "__main__":
                    help="Namespaced HF repo for the full run (ignored if --shakespeare/--fake-data).")
     p.add_argument("--shakespeare", action="store_true", help="Use tiny-shakespeare (local dev).")
     p.add_argument("--fake-data",   action="store_true", help="Use random tokens (smoke).")
+    p.add_argument("--lr",          type=float, default=Config.lr,
+                   help="Peak learning rate. Scale up with batch size (≈√ rule).")
+    p.add_argument("--warmup-steps", type=int,  default=Config.warmup_steps)
     p.add_argument("--lam",         type=float, default=Config.lam)
     p.add_argument("--sigreg-grad-scale", type=float, default=Config.sigreg_grad_scale,
                    help="α: fraction of SIGReg gradient reaching the encoder (1=full, 0=shielded).")
@@ -190,6 +193,7 @@ if __name__ == "__main__":
     train(Config(
         max_steps=a.steps, corpus=a.corpus,
         shakespeare=a.shakespeare, fake_data=a.fake_data,
+        lr=a.lr, warmup_steps=a.warmup_steps,
         lam=a.lam, sigreg_grad_scale=a.sigreg_grad_scale,
         d_model=a.d_model, d_proj=a.d_proj,
         n_heads=a.n_heads, enc_layers=a.enc_layers, pred_layers=a.pred_layers,

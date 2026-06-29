@@ -13,15 +13,20 @@ if [ -f .env ]; then set -a; source .env; set +a; fi   # for WANDB_API_KEY
 # ───────────────── run config — edit these ──────────────────────────────────
 GPU="${GPU:-0}"                   # which GPU to use; run `nvidia-smi` to list indices
 CORPUS="Skylion007/openwebtext"   # namespaced HF repo; or "HuggingFaceFW/fineweb"
-STEPS=50000                       # ~500M tokens at batch 32 × seq 128
-# Model scale: 768/12L ≈ BERT-base (~110M), matches embedding-model peers.
+STEPS=120000                      # ~2.0B tokens at batch 128 × seq 128 (well past Chinchilla-min)
+# Model scale: 768/12L ≈ BERT-base (~124M encoder), matches embedding-model peers.
 # Drop to 256/4L for a faster, cheaper first run.
 D_MODEL=768
 D_PROJ=768                        # >= D_MODEL (expander), per methods_note — not a bottleneck
 ENC_LAYERS=12
 N_HEADS=12
-BATCH=32
+# Batch 128 is the safe fp32 ceiling on a 48GB L20: this model runs TWO full encoder
+# passes per step (clean + masked), so activations ≈ 2x a normal BERT — ~26GB at b=128.
+# b=256 needs ~52GB and OOMs in fp32; use it only with bf16 autocast (halves activations).
+BATCH=128
 SEQLEN=128
+LR=4e-4                           # scaled from 3e-4 @ batch 32 (≈√ rule for the 4x batch bump)
+WARMUP=2000                       # longer warmup suits the larger batch + longer schedule
 LAM=0.006                         # SIGReg weight (calibrated ~3x encoder grad ratio)
 ALPHA=1.0                         # SIGReg gradient into encoder: 1=full, <1 shields it, 0=none
 SAVE_EVERY=5000
@@ -36,10 +41,12 @@ python mask/train.py \
   --d-model "$D_MODEL" --d-proj "$D_PROJ" \
   --enc-layers "$ENC_LAYERS" --n-heads "$N_HEADS" \
   --batch-size "$BATCH" --seq-len "$SEQLEN" \
+  --lr "$LR" --warmup-steps "$WARMUP" \
   --lam "$LAM" \
   --sigreg-grad-scale "$ALPHA" \
   --save-every "$SAVE_EVERY" \
   --wandb --run-name "$RUN_NAME"
 
 echo "==> Done. Evaluate the final checkpoint:"
-echo "    python mask/eval_sts.py checkpoints_mask/${RUN_NAME}_final.pt"
+echo "    python mask/eval_sts.py  checkpoints_mask/${RUN_NAME}_final.pt   # quick STS-B proxy"
+echo "    python mask/eval_mteb.py checkpoints_mask/${RUN_NAME}_final.pt   # full MTEB verdict"
