@@ -5,3 +5,4 @@ tqdm
 wandb          # optional — only needed with --wandb flag
 umap-learn     # optional — only needed for eval_neighbors.py --umap
 matplotlib     # optional — only needed for eval_neighbors.py --umap
+mteb           # optional — only needed for eval_mteb.py

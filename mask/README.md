@@ -17,7 +17,8 @@ This is a clean-slate build under `mask/`; it does not touch the root files.
 | `sigreg.py` | SIGReg isotropy loss (Epps-Pulley CF test), applied in projection space. |
 | `data.py` | Datasets (fake / Shakespeare / streaming corpus) + `make_masked_input`. |
 | `train.py` | Training loop + CLI. Logs to W&B, saves checkpoints. |
-| `eval_sts.py` | STS-B evaluation (a cheap MTEB task) for a checkpoint. |
+| `eval_sts.py` | STS-B evaluation (a cheap single MTEB task) — fast iteration proxy. |
+| `eval_mteb.py` | Full MTEB evaluation (the real embedding-quality verdict). |
 | `smoke_test.py` | Shapes + gradient-routing + masking sanity checks. |
 | `setup.sh` / `wandb_login.sh` / `run_owt.sh` | Server: install, auth, launch OWT. |
 
@@ -39,8 +40,8 @@ loss = MSE + lam * SIGReg(z_clean)
 ```
 
 Eval read-out: **encoder → mean-pool** (the projection/predictor are training-time
-only). `eval_sts.py --readout encoder` is the standard; `proj` is available but
-scored lower in testing.
+only). `--readout encoder` is the standard; `proj` is available but scored lower in
+testing. Both `eval_sts.py` and `eval_mteb.py` share this read-out.
 
 ---
 
@@ -109,9 +110,31 @@ echo "WANDB_API_KEY=<key>" > .env       # .env is gitignored — recreate it her
 bash mask/wandb_login.sh
 bash mask/run_owt.sh                     # edit the config block at the top first
 ```
-`run_owt.sh` defaults to 768/12L (~110M), `Skylion007/openwebtext`, 50k steps,
-`lam=0.006`, normalized target, checkpoints every 5k. Switch corpus to
-`HuggingFaceFW/fineweb` or drop to 256/4L in the script's config block.
+`run_owt.sh` defaults to 768/12L (~124M encoder), `Skylion007/openwebtext`, batch 128,
+120k steps (**~2.0B tokens**, well past Chinchilla-min for 124M params), `lr=4e-4`
+(√-scaled for the larger batch), 2k warmup, `lam=0.006`, normalized target, checkpoints
+every 5k. Switch corpus to `HuggingFaceFW/fineweb` or drop to 256/4L in the config block.
+LR (`--lr`) and warmup (`--warmup-steps`) are now CLI args on `train.py` — scale LR with
+batch size (≈√ rule).
+
+**Memory note (L20 / 48GB):** the model runs **two** full encoder passes per step (clean +
+masked), so activations are ~2× a normal BERT — **batch 128 ≈ 26GB** in fp32 (the safe
+ceiling). Batch 256 needs ~52GB and **OOMs in fp32**; to use it, add bf16 `autocast` to the
+training loop (halves activations, ~1.5–2× faster) and keep SIGReg in fp32. Grad
+checkpointing is the fallback if AMP isn't an option.
+
+**Evaluate a checkpoint** (read-out is `encoder → mean-pool`):
+```bash
+python mask/eval_sts.py  checkpoints_mask/<run>_final.pt          # quick STS-B proxy (~30s)
+pip install mteb                                                  # eval-only extra
+python mask/eval_mteb.py checkpoints_mask/<run>_final.pt          # default cross-task slice
+python mask/eval_mteb.py checkpoints_mask/<run>_final.pt \
+    --benchmark "MTEB(eng, v2)"                                   # full English MTEB suite
+```
+`eval_mteb.py` defaults to a fast slice (STSBenchmark, SICK-R, Banking77, TwentyNewsgroups);
+use `--tasks <names...>` for an explicit list, `--readout proj`, or `--batch-size`. Results
+land in `mteb_results/<run>_<readout>/`. Absolute scores mean little for a 124M encoder at
+this token budget — **compare the delta against a matched-compute BERT-base baseline.**
 
 **Sweep the isotropy gate α:**
 ```bash
@@ -136,5 +159,11 @@ GPU=0 bash mask/run_owt.sh          # or edit GPU= in the script
   STS pipeline + checkpointing + baseline-relative measurement all work.
 - **Embedding quality: not yet proven.** STS-B random-init baseline ≈ **0.32**
   (lexical-overlap floor); Shakespeare-trained **dropped to ~0.11** — expected domain
-  mismatch (tiny, archaic, memorized corpus). A real verdict needs the **OWT server
-  run**, then full MTEB vs a matched-compute BERT-base baseline.
+  mismatch (tiny, archaic, memorized corpus).
+- **First OWT run done but undertrained.** `lejepa_mask_owt_*` (50k steps, batch 32 =
+  **~205M tokens**) proved no-collapse and stable geometry, but every curve was still
+  moving at the end (loss, eff-rank, iso_gap not plateaued) and the prediction signal
+  stayed weak — normalized MSE ~0.0025 ≈ pred↔target cosine of only ~0.05. That's a
+  token-budget problem (~1.6 tok/param), not a capacity one (the encoder *is* 124M).
+- **Next:** the larger run now in `run_owt.sh` (batch 128, 120k steps ≈ **2.0B tokens**,
+  LR-scaled) → then `eval_mteb.py` vs a matched-compute BERT-base baseline for the verdict.
