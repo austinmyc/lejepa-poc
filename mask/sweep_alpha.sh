@@ -8,7 +8,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-source .venv/bin/activate
+# shellcheck disable=SC1091
+source "$ROOT/mask/env.sh"
 if [ -f .env ]; then set -a; source .env; set +a; fi
 
 # ───────────────── sweep config — edit these ────────────────────────────────

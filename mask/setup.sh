@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
-# Server setup: create a venv and install dependencies.
+# Server setup: create a conda env and install dependencies.
 # Usage:  bash mask/setup.sh
 set -euo pipefail
 
-# Resolve repo root (this script lives in mask/).
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> Creating virtualenv at $ROOT/.venv"
-python3 -m venv .venv
-source .venv/bin/activate
+ENV_NAME="${CONDA_ENV_NAME:-lejepa-poc}"
+
+# shellcheck disable=SC1091
+source "$HOME/miniconda3/etc/profile.d/conda.sh"
+
+if conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+  echo "==> Conda env '$ENV_NAME' already exists"
+else
+  echo "==> Creating conda env '$ENV_NAME' (python 3.12)"
+  conda create -n "$ENV_NAME" python=3.12 -y
+fi
+
+conda activate "$ENV_NAME"
 
 echo "==> Upgrading pip and installing requirements"
 pip install --upgrade pip
@@ -18,6 +27,6 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 echo "==> Done. Next:"
-echo "    source .venv/bin/activate"
+echo "    conda activate $ENV_NAME"
 echo "    bash mask/wandb_login.sh      # connect Weights & Biases"
 echo "    bash mask/run_owt.sh          # launch the OpenWebText run"

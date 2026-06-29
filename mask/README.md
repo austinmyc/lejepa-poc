@@ -104,7 +104,7 @@ python mask/eval_sts.py checkpoints_mask/dev_final.pt
 
 **Server (full OpenWebText):**
 ```bash
-bash mask/setup.sh                      # venv + requirements
+bash mask/setup.sh                      # conda env + requirements
 echo "WANDB_API_KEY=<key>" > .env       # .env is gitignored — recreate it here
 bash mask/wandb_login.sh
 bash mask/run_owt.sh                     # edit the config block at the top first

@@ -7,7 +7,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-source .venv/bin/activate
+# shellcheck disable=SC1091
+source "$ROOT/mask/env.sh"
 
 # Load .env if present (KEY=VALUE lines).
 if [ -f .env ]; then
