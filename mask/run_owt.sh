@@ -45,8 +45,6 @@ python mask/train.py \
   --lam "$LAM" \
   --sigreg-grad-scale "$ALPHA" \
   --save-every "$SAVE_EVERY" \
-  --wandb --run-name "$RUN_NAME"
+  --wandb --mteb --run-name "$RUN_NAME"
 
-echo "==> Done. Evaluate the final checkpoint:"
-echo "    python mask/eval_sts.py  checkpoints_mask/${RUN_NAME}_final.pt   # quick STS-B proxy"
-echo "    python mask/eval_mteb.py checkpoints_mask/${RUN_NAME}_final.pt   # full MTEB verdict"
+echo "==> Done. MTEB results logged to W&B and written to mteb_results/."

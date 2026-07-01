@@ -85,6 +85,78 @@ class LeJEPAEncoder:
         return torch.cat(out).cpu().numpy() if out else np.zeros((0, 1), dtype=np.float32)
 
 
+def run_mteb_eval(
+    model,
+    cfg,
+    step,
+    device,
+    readout="encoder",
+    tasks=None,
+    benchmark=None,
+    batch_size=128,
+    out="mteb_results",
+    wandb_run=None,
+):
+    """
+    Run MTEB eval on a live model and optionally log results to wandb.
+
+    Args:
+        model:      trained LeJEPAText instance (already on device, will be set to eval())
+        cfg:        Config object (needs seq_len, run_name)
+        step:       current training step (for naming / wandb logging)
+        device:     torch device string
+        readout:    "encoder" or "proj"
+        tasks:      list of MTEB task names; falls back to DEFAULT_TASKS
+        benchmark:  named MTEB benchmark string (overrides tasks)
+        batch_size: encoding batch size
+        out:        root directory for MTEB result JSON files
+        wandb_run:  live wandb run object; if provided, scores are logged as
+                    mteb/<task_name> and mteb/mean
+
+    Returns:
+        dict mapping task_name -> score (float), or {} on failure
+    """
+    try:
+        import mteb
+    except ImportError:
+        print("MTEB not installed — skipping eval. Run:  pip install mteb")
+        return {}
+
+    tok = GPT2TokenizerFast.from_pretrained("gpt2")
+    encoder = LeJEPAEncoder(model, tok, device, cfg.seq_len, readout, batch_size)
+    model.eval()
+
+    if benchmark:
+        task_list = mteb.get_benchmark(benchmark)
+    else:
+        task_list = mteb.get_tasks(tasks=tasks or DEFAULT_TASKS)
+
+    out_dir = os.path.join(out, f"{cfg.run_name}_{readout}_step{step}")
+    print(f"==> Running MTEB ({readout} readout, step {step}) → {out_dir}")
+    results = mteb.MTEB(tasks=task_list).run(
+        encoder, output_folder=out_dir, encode_kwargs={"batch_size": batch_size}
+    )
+
+    scores = {}
+    print("\n==> MTEB scores")
+    for r in results:
+        try:
+            s = r.get_score()
+            scores[r.task_name] = s
+            print(f"  {r.task_name:40} {s:.4f}")
+        except Exception:
+            print(f"  {getattr(r, 'task_name', r)}  (see {out_dir})")
+
+    if scores and wandb_run is not None:
+        log = {f"mteb/{k}": v for k, v in scores.items()}
+        log["mteb/mean"] = sum(scores.values()) / len(scores)
+        wandb_run.log(log, step=step)
+        print(f"  logged {len(log)} MTEB metrics to W&B")
+
+    print(f"\nFull results written to {out_dir}/")
+    return scores
+
+
 def main():
     ap = argparse.ArgumentParser(description="MTEB evaluation for a mask/ checkpoint.")
     ap.add_argument("checkpoint")
@@ -97,40 +169,21 @@ def main():
     ap.add_argument("--out", default="mteb_results", help="Output folder for MTEB results.")
     args = ap.parse_args()
 
-    try:
-        import mteb
-    except ImportError:
-        raise SystemExit("MTEB not installed. Run:  pip install mteb")
-
     device = "cuda" if torch.cuda.is_available() else \
              "mps" if torch.backends.mps.is_available() else "cpu"
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     cfg = ckpt["config"]
     model = LeJEPAText(cfg).to(device)
     model.load_state_dict(ckpt["model"])
-    model.eval()
 
-    tok = GPT2TokenizerFast.from_pretrained("gpt2")
-    encoder = LeJEPAEncoder(model, tok, device, cfg.seq_len, args.readout, args.batch_size)
-
-    if args.benchmark:
-        tasks = mteb.get_benchmark(args.benchmark)
-    else:
-        tasks = mteb.get_tasks(tasks=args.tasks or DEFAULT_TASKS)
-
-    out_dir = os.path.join(args.out, f"{cfg.run_name}_{args.readout}")
-    print(f"==> Running MTEB ({args.readout} readout, step {ckpt['step']}) → {out_dir}")
-    results = mteb.MTEB(tasks=tasks).run(
-        encoder, output_folder=out_dir, encode_kwargs={"batch_size": args.batch_size}
+    run_mteb_eval(
+        model, cfg, ckpt["step"], device,
+        readout=args.readout,
+        tasks=args.tasks,
+        benchmark=args.benchmark,
+        batch_size=args.batch_size,
+        out=args.out,
     )
-
-    print("\n==> Main scores")
-    for r in results:
-        try:
-            print(f"  {r.task_name:32} {r.get_score():.4f}")
-        except Exception:
-            print(f"  {getattr(r, 'task_name', r)}  (see {out_dir})")
-    print(f"\nFull results written to {out_dir}/")
 
 
 if __name__ == "__main__":

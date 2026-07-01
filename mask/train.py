@@ -22,6 +22,7 @@ from config import Config
 from model  import LeJEPAText
 from sigreg import sigreg_loss
 from data   import get_dataloader, make_masked_input
+from eval_mteb import run_mteb_eval
 
 
 def get_lr(step, cfg):
@@ -150,6 +151,11 @@ def train(cfg: Config):
 
     save_checkpoint(model, cfg, cfg.max_steps, final=True)
 
+    if cfg.run_mteb:
+        device_str = str(next(model.parameters()).device)
+        wandb_run = wandb.run if cfg.use_wandb else None
+        run_mteb_eval(model, cfg, cfg.max_steps, device_str, wandb_run=wandb_run)
+
     if cfg.use_wandb:
         wandb.finish()
 
@@ -187,6 +193,8 @@ if __name__ == "__main__":
                    help="Predict raw (unnormalized) targets — known to diverge; for ablation only.")
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
     p.add_argument("--wandb",       action="store_true")
+    p.add_argument("--mteb",        action="store_true",
+                   help="Run MTEB eval on the final checkpoint after training.")
     p.add_argument("--run-name",    type=str,   default=Config.run_name)
     a = p.parse_args()
 
@@ -199,5 +207,5 @@ if __name__ == "__main__":
         n_heads=a.n_heads, enc_layers=a.enc_layers, pred_layers=a.pred_layers,
         batch_size=a.batch_size, seq_len=a.seq_len,
         normalize_target=not a.no_normalize_target,
-        save_every=a.save_every, use_wandb=a.wandb, run_name=a.run_name,
+        save_every=a.save_every, use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))

@@ -79,3 +79,6 @@ class Config:
     wandb_entity:   str  = "austinmyc"
     wandb_project:  str  = "lejepa"
     run_name:       str  = "lejepa_mask"
+
+    # ── Post-training MTEB eval ────────────────────────────────────────────
+    run_mteb:       bool = False   # run MTEB eval after training finishes
