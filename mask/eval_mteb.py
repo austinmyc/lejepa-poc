@@ -19,6 +19,7 @@ Requires `pip install mteb` (kept out of requirements.txt as an eval-only extra)
 """
 
 import argparse
+import json
 import os
 
 import numpy as np
@@ -152,7 +153,24 @@ def run_mteb_eval(
             scores[r.task_name] = s
             print(f"  {r.task_name:40} {s:.4f}")
         except Exception:
-            print(f"  {getattr(r, 'task_name', r)}  (see {out_dir})")
+            print(f"  {getattr(r, 'task_name', r)}  (no score)")
+
+    # Save scores + full result objects to disk.
+    os.makedirs(out_dir, exist_ok=True)
+    scores_path = os.path.join(out_dir, "scores.json")
+    with open(scores_path, "w") as f:
+        json.dump({"step": step, "readout": readout, "scores": scores,
+                   "mean": sum(scores.values()) / len(scores) if scores else None}, f, indent=2)
+    print(f"\nScores written to {scores_path}")
+
+    # Save per-task full results (each TaskResult has a .to_dict()).
+    for r in results:
+        try:
+            task_path = os.path.join(out_dir, f"{r.task_name}.json")
+            with open(task_path, "w") as f:
+                json.dump(r.to_dict(), f, indent=2)
+        except Exception:
+            pass
 
     if scores and wandb_run is not None:
         log = {f"mteb/{k}": v for k, v in scores.items()}
@@ -160,7 +178,6 @@ def run_mteb_eval(
         wandb_run.log(log, step=step)
         print(f"  logged {len(log)} MTEB metrics to W&B")
 
-    print(f"\nFull results written to {out_dir}/")
     return scores
 
 
