@@ -38,7 +38,13 @@ DEFAULT_TASKS = [
 ]
 
 
-class LeJEPAEncoder:
+try:
+    from mteb import Encoder as _MtebEncoder
+except ImportError:
+    _MtebEncoder = object
+
+
+class LeJEPAEncoder(_MtebEncoder):
     """MTEB-compatible wrapper exposing `.encode(sentences) -> np.ndarray`.
 
     Replicates TokenEncoder.forward but adds a src_key_padding_mask so a padded
@@ -133,8 +139,9 @@ def run_mteb_eval(
 
     out_dir = os.path.join(out, f"{cfg.run_name}_{readout}_step{step}")
     print(f"==> Running MTEB ({readout} readout, step {step}) → {out_dir}")
-    results = mteb.MTEB(tasks=task_list).run(
-        encoder, output_folder=out_dir, encode_kwargs={"batch_size": batch_size}
+    results = mteb.evaluate(
+        encoder, tasks=task_list, output_folder=out_dir,
+        encode_kwargs={"batch_size": batch_size},
     )
 
     scores = {}
