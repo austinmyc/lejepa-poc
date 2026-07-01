@@ -140,7 +140,7 @@ def run_mteb_eval(
     out_dir = os.path.join(out, f"{cfg.run_name}_{readout}_step{step}")
     print(f"==> Running MTEB ({readout} readout, step {step}) → {out_dir}")
     results = mteb.evaluate(
-        encoder, tasks=task_list, output_folder=out_dir,
+        encoder, tasks=task_list,
         encode_kwargs={"batch_size": batch_size},
     )
 
