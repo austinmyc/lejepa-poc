@@ -172,8 +172,10 @@ def run_mteb_eval(
     for task, r in zip(task_list, results):
         name = task.metadata.name
         try:
-            s = r.get_score() if hasattr(r, "get_score") else r
-            scores[name] = float(s)
+            # r is a dict of {subset: {metric: value}}; average main_score across subsets.
+            subset_scores = [v["main_score"] for v in r.values() if "main_score" in v]
+            s = sum(subset_scores) / len(subset_scores)
+            scores[name] = s
             print(f"  {name:40} {s:.4f}")
         except Exception as e:
             print(f"  {name}  (no score: {e})")
@@ -191,7 +193,7 @@ def run_mteb_eval(
         try:
             task_path = os.path.join(out_dir, f"{task.metadata.name}.json")
             with open(task_path, "w") as f:
-                json.dump(r.to_dict() if hasattr(r, "to_dict") else r, f, indent=2)
+                json.dump(r, f, indent=2)
         except Exception:
             pass
 
