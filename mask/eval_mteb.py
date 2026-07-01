@@ -85,10 +85,24 @@ class LeJEPAEncoder:
 
     def encode(self, inputs, *, task_metadata=None, hf_split=None, hf_subset=None,
                prompt_type=None, **kwargs):
-        # inputs is a DataLoader[BatchedInput]; each batch is a dict with "sentences".
+        # inputs is a DataLoader[BatchedInput]; extract text from whatever key is present.
         all_embs = []
+        _logged_keys = False
         for batch in inputs:
-            sentences = batch["sentences"] if isinstance(batch, dict) else list(batch)
+            if isinstance(batch, dict):
+                if not _logged_keys:
+                    print(f"  [debug] batch keys: {list(batch.keys())}")
+                    _logged_keys = True
+                # Try known text keys in priority order.
+                for key in ("sentences", "text", "query", "passage", "corpus"):
+                    if key in batch:
+                        sentences = batch[key]
+                        break
+                else:
+                    # Fall back to the first list/tuple value in the batch.
+                    sentences = next(v for v in batch.values() if isinstance(v, (list, tuple)))
+            else:
+                sentences = list(batch)
             all_embs.append(self._encode_sentences(sentences))
         return np.concatenate(all_embs, axis=0) if all_embs else np.zeros((0, 1), dtype=np.float32)
 
