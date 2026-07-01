@@ -40,11 +40,11 @@ DEFAULT_TASKS = [
 
 
 class LeJEPAEncoder:
-    """MTEB-compatible wrapper exposing `.encode(sentences) -> np.ndarray`.
+    """MTEB EncoderProtocol-compatible wrapper for LeJEPAText.
 
-    Replicates TokenEncoder.forward but adds a src_key_padding_mask so a padded
-    batch mean-pools over real tokens only — the batched equivalent of the
-    per-sentence mean-pool in eval_sts.py.
+    The new MTEB API passes a DataLoader[BatchedInput] to encode(), where each
+    batch is a dict with a "sentences" key. We extract sentences, tokenize with
+    GPT-2 BPE, mean-pool over real (non-pad) tokens, and return a numpy array.
     """
 
     def __init__(self, model, tok, device, seq_len, readout, batch_size):
@@ -55,35 +55,52 @@ class LeJEPAEncoder:
         self.readout = readout
         self.batch_size = batch_size
 
+        try:
+            from mteb import ModelMeta
+            self.mteb_model_meta = ModelMeta(name="lejepa", revision="0", languages=["eng"])
+        except Exception:
+            self.mteb_model_meta = None
+
     @torch.no_grad()
-    def _encode_batch(self, sentences):
+    def _encode_sentences(self, sentences):
         enc = self.model.encoder
         pad_id = self.tok.eos_token_id
         ids = [self.tok.encode(s)[: self.seq_len] or [pad_id] for s in sentences]
         L = max(len(x) for x in ids)
         input_ids = torch.full((len(ids), L), pad_id, dtype=torch.long, device=self.device)
-        key_pad = torch.ones((len(ids), L), dtype=torch.bool, device=self.device)  # True = pad
+        key_pad = torch.ones((len(ids), L), dtype=torch.bool, device=self.device)
         for i, seq in enumerate(ids):
             input_ids[i, : len(seq)] = torch.tensor(seq, device=self.device)
             key_pad[i, : len(seq)] = False
 
         pos = torch.arange(L, device=self.device).unsqueeze(0)
-        h = enc.drop(enc.tok_emb(input_ids) + enc.pos_emb(pos))   # drop is identity in eval()
+        h = enc.drop(enc.tok_emb(input_ids) + enc.pos_emb(pos))
         h = enc.norm(enc.transformer(h, src_key_padding_mask=key_pad))
         if self.readout == "proj":
             h = self.model.proj(h)
 
-        keep = (~key_pad).unsqueeze(-1).float()                   # (B, L, 1)
+        keep = (~key_pad).unsqueeze(-1).float()
         emb = (h * keep).sum(dim=1) / keep.sum(dim=1).clamp(min=1.0)
-        return emb
+        return emb.cpu().numpy()
 
-    @torch.no_grad()
-    def encode(self, sentences, *, batch_size=None, **kwargs):
-        # **kwargs absorbs task_name / prompt_type / etc. that MTEB may pass.
-        bs = batch_size or self.batch_size
-        sentences = list(sentences)
-        out = [self._encode_batch(sentences[i : i + bs]) for i in range(0, len(sentences), bs)]
-        return torch.cat(out).cpu().numpy() if out else np.zeros((0, 1), dtype=np.float32)
+    def encode(self, inputs, *, task_metadata=None, hf_split=None, hf_subset=None,
+               prompt_type=None, **kwargs):
+        # inputs is a DataLoader[BatchedInput]; each batch is a dict with "sentences".
+        all_embs = []
+        for batch in inputs:
+            sentences = batch["sentences"] if isinstance(batch, dict) else list(batch)
+            all_embs.append(self._encode_sentences(sentences))
+        return np.concatenate(all_embs, axis=0) if all_embs else np.zeros((0, 1), dtype=np.float32)
+
+    def similarity(self, emb1, emb2):
+        e1 = torch.tensor(emb1).float()
+        e2 = torch.tensor(emb2).float()
+        return F.normalize(e1, dim=-1) @ F.normalize(e2, dim=-1).T
+
+    def similarity_pairwise(self, emb1, emb2):
+        e1 = F.normalize(torch.tensor(emb1).float(), dim=-1)
+        e2 = F.normalize(torch.tensor(emb2).float(), dim=-1)
+        return (e1 * e2).sum(dim=-1)
 
 
 def run_mteb_eval(
