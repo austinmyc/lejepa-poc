@@ -85,21 +85,16 @@ class LeJEPAEncoder:
 
     def encode(self, inputs, *, task_metadata=None, hf_split=None, hf_subset=None,
                prompt_type=None, **kwargs):
-        # inputs is a DataLoader[BatchedInput]; extract text from whatever key is present.
+        # inputs is a DataLoader[BatchedInput]; each batch is a dict keyed by modality ("text",
+        # "query", "passage", etc.) or, for older MTEB, a plain list of sentences.
         all_embs = []
-        _logged_keys = False
         for batch in inputs:
             if isinstance(batch, dict):
-                if not _logged_keys:
-                    print(f"  [debug] batch keys: {list(batch.keys())}")
-                    _logged_keys = True
-                # Try known text keys in priority order.
-                for key in ("sentences", "text", "query", "passage", "corpus"):
+                for key in ("text", "query", "passage", "sentences", "corpus"):
                     if key in batch:
                         sentences = batch[key]
                         break
                 else:
-                    # Fall back to the first list/tuple value in the batch.
                     sentences = next(v for v in batch.values() if isinstance(v, (list, tuple)))
             else:
                 sentences = list(batch)
