@@ -39,13 +39,7 @@ DEFAULT_TASKS = [
 ]
 
 
-try:
-    from mteb import Encoder as _MtebEncoder
-except ImportError:
-    _MtebEncoder = object
-
-
-class LeJEPAEncoder(_MtebEncoder):
+class LeJEPAEncoder:
     """MTEB-compatible wrapper exposing `.encode(sentences) -> np.ndarray`.
 
     Replicates TokenEncoder.forward but adds a src_key_padding_mask so a padded
@@ -60,9 +54,6 @@ class LeJEPAEncoder(_MtebEncoder):
         self.seq_len = seq_len
         self.readout = readout
         self.batch_size = batch_size
-
-    def load_model(self, **kwargs):
-        return self
 
     @torch.no_grad()
     def _encode_batch(self, sentences):
@@ -142,21 +133,24 @@ def run_mteb_eval(
         task_list = mteb.get_tasks(tasks=tasks or DEFAULT_TASKS)
 
     out_dir = os.path.join(out, f"{cfg.run_name}_{readout}_step{step}")
+    os.makedirs(out_dir, exist_ok=True)
     print(f"==> Running MTEB ({readout} readout, step {step}) → {out_dir}")
-    results = mteb.evaluate(
-        encoder, tasks=task_list,
-        encode_kwargs={"batch_size": batch_size},
-    )
+    results = []
+    for task in task_list:
+        print(f"  evaluating {task.metadata.name} ...")
+        task_results = task.evaluate(encoder, encode_kwargs={"batch_size": batch_size})
+        results.append(task_results)
 
     scores = {}
     print("\n==> MTEB scores")
-    for r in results:
+    for task, r in zip(task_list, results):
+        name = task.metadata.name
         try:
-            s = r.get_score()
-            scores[r.task_name] = s
-            print(f"  {r.task_name:40} {s:.4f}")
-        except Exception:
-            print(f"  {getattr(r, 'task_name', r)}  (no score)")
+            s = r.get_score() if hasattr(r, "get_score") else r
+            scores[name] = float(s)
+            print(f"  {name:40} {s:.4f}")
+        except Exception as e:
+            print(f"  {name}  (no score: {e})")
 
     # Save scores + full result objects to disk.
     os.makedirs(out_dir, exist_ok=True)
@@ -167,11 +161,11 @@ def run_mteb_eval(
     print(f"\nScores written to {scores_path}")
 
     # Save per-task full results (each TaskResult has a .to_dict()).
-    for r in results:
+    for task, r in zip(task_list, results):
         try:
-            task_path = os.path.join(out_dir, f"{r.task_name}.json")
+            task_path = os.path.join(out_dir, f"{task.metadata.name}.json")
             with open(task_path, "w") as f:
-                json.dump(r.to_dict(), f, indent=2)
+                json.dump(r.to_dict() if hasattr(r, "to_dict") else r, f, indent=2)
         except Exception:
             pass
 
