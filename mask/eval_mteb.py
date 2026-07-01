@@ -61,6 +61,9 @@ class LeJEPAEncoder(_MtebEncoder):
         self.readout = readout
         self.batch_size = batch_size
 
+    def load_model(self, **kwargs):
+        return self
+
     @torch.no_grad()
     def _encode_batch(self, sentences):
         enc = self.model.encoder
