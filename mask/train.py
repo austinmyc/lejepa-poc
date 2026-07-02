@@ -113,7 +113,7 @@ def train(cfg: Config):
         for pg in opt.param_groups:
             pg["lr"] = lr
 
-        pred, target, z_clean, h_clean = model(x_clean, x_masked, mask, ema_model=ema_model)
+        pred, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask, ema_model=ema_model)
 
         B, L, P = z_clean.shape
         if cfg.normalize_target:
@@ -128,11 +128,12 @@ def train(cfg: Config):
                           global_step=step)
         loss = cfg.mse_weight * mse + cfg.lam * reg
 
-        # MLM anchor: decode predictor output → token logits at masked
-        # positions. Grounds the latent space in data (see config.mlm_beta).
+        # MLM anchor: decode back to token logits at masked positions.
+        # Grounds the latent space in data (see config.mlm_beta / mlm_head).
         ce = torch.tensor(0.0, device=device)
         if model.decoder is not None:
-            logits = model.decoder(pred)               # (M, vocab)
+            src = pred if model.mlm_head == "pred" else h_masked[mask]
+            logits = model.decoder(src)                # (M, vocab)
             ce = F.cross_entropy(logits, x_clean[mask])
             loss = loss + cfg.mlm_beta * ce
 
@@ -227,6 +228,9 @@ if __name__ == "__main__":
                    help="Weight of the MLM anchor CE loss (0 = pure JEPA, no decoder head).")
     p.add_argument("--mse-weight",  type=float, default=Config.mse_weight,
                    help="Weight of the JEPA MSE term (0 + --mlm-beta = pure MLM baseline).")
+    p.add_argument("--mlm-head",    type=str,   default=Config.mlm_head,
+                   choices=["pred", "encoder"],
+                   help="CE head attach point: predictor output (anchored JEPA) or encoder output (BERT-style control).")
     p.add_argument("--wandb",       action="store_true")
     p.add_argument("--mteb",        action="store_true",
                    help="Run MTEB eval on the final checkpoint after training.")
@@ -245,6 +249,6 @@ if __name__ == "__main__":
         mask_ratio=a.mask_ratio, mask_strategy=a.mask_strategy,
         save_every=a.save_every,
         use_ema=a.ema, ema_decay=a.ema_decay,
-        mlm_beta=a.mlm_beta, mse_weight=a.mse_weight,
+        mlm_beta=a.mlm_beta, mse_weight=a.mse_weight, mlm_head=a.mlm_head,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))

@@ -91,6 +91,9 @@ class Config:
     # latent prediction from scratch (random targets teach nothing).
     # β = 0 disables the head entirely (pure JEPA, original behaviour).
     mlm_beta:       float = 0.0
+    # Where the CE head attaches: "pred" (predictor output — anchored JEPA) or
+    # "encoder" (encoder(x_masked) output — standard BERT-style MLM control).
+    mlm_head:       str   = "pred"
     # Weight on the JEPA MSE term. 0 + mlm_beta>0 = pure MLM baseline with the
     # same architecture (matched-compute control for the anchor experiment).
     mse_weight:     float = 1.0

@@ -150,18 +150,25 @@ class LeJEPAText(nn.Module):
         self.predictor = SpanPredictor(cfg)
         self.sigreg_grad_scale = cfg.sigreg_grad_scale
 
-        # MLM anchor head: decodes predictor output back to token logits at
-        # masked positions. Only built when mlm_beta > 0 (pure JEPA otherwise).
-        # getattr for backward-compat with checkpoints pickled before this field.
-        self.decoder = (nn.Linear(cfg.d_proj, cfg.vocab_size)
+        # MLM anchor head: decodes back to token logits at masked positions.
+        # Attach point (cfg.mlm_head):
+        #   "pred"    — on predictor output (P dims): CE flows through the full
+        #               predictor→proj→encoder path (anchored JEPA).
+        #   "encoder" — on encoder(x_masked) output (D dims): standard BERT-style
+        #               MLM; CE shapes the encoder directly (control arm).
+        # Only built when mlm_beta > 0 (pure JEPA otherwise).
+        # getattr for backward-compat with checkpoints pickled before these fields.
+        self.mlm_head = getattr(cfg, "mlm_head", "pred")
+        d_dec = cfg.d_proj if self.mlm_head == "pred" else cfg.d_model
+        self.decoder = (nn.Linear(d_dec, cfg.vocab_size)
                         if getattr(cfg, "mlm_beta", 0.0) > 0 else None)
         if self.decoder is not None:
             _init_weights(self.decoder)
 
     def forward(self, x_clean, x_masked, mask, ema_model=None):
         # Masked path — always runs through the student (full gradient).
-        h_masked = self.encoder(x_masked)
-        z_masked = self.proj(h_masked)
+        h_masked = self.encoder(x_masked)              # (B, L, D) — also returned
+        z_masked = self.proj(h_masked)                 # for the encoder-level MLM head
         pred     = self.predictor(z_masked)[mask]      # (M, P)
 
         if ema_model is not None:
@@ -176,7 +183,7 @@ class LeJEPAText(nn.Module):
             z_clean = self.proj(grad_scale(h_clean, self.sigreg_grad_scale))
             target  = z_clean[mask].detach()
 
-        return pred, target, z_clean, h_clean
+        return pred, target, z_clean, h_clean, h_masked
 
     def count_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)

@@ -33,7 +33,7 @@ def main():
     M = int(mask.sum())
 
     # ── 1. shapes ─────────────────────────────────────────────────────────
-    pred, target, z_clean, h_clean = model(x_clean, x_masked, mask)
+    pred, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask)
     assert pred.shape   == (M, cfg.d_proj),                     pred.shape
     assert target.shape == (M, cfg.d_proj),                     target.shape
     assert z_clean.shape == (cfg.batch_size, cfg.seq_len, cfg.d_proj), z_clean.shape
@@ -59,7 +59,7 @@ def main():
 
     # ── 4. MSE grad reaches the predictor ─────────────────────────────────
     model.zero_grad()
-    pred, target, _, _ = model(x_clean, x_masked, mask)
+    pred, target, _, _, _ = model(x_clean, x_masked, mask)
     mse = F.mse_loss(pred, target)
     mse.backward()
     pred_params = [p for p in model.predictor.parameters() if p.grad is not None]
@@ -74,7 +74,7 @@ def main():
                               sigreg_grad_scale=alpha)).to(device)
         m.load_state_dict(model.state_dict())   # identical weights, only α differs
         m.eval()                                # disable dropout so only α varies
-        _, _, z, _ = m(x_clean, x_masked, mask)
+        _, _, z, _, _ = m(x_clean, x_masked, mask)
         m.zero_grad()
         sigreg_loss(z.reshape(-1, cfg.d_proj), num_slices=cfg.sigreg_num_slices).backward()
         enc = sum(p.grad.abs().sum() for p in m.encoder.parameters() if p.grad is not None)
@@ -102,7 +102,7 @@ def main():
 
     # ── 6. one end-to-end step ────────────────────────────────────────────
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    pred, target, z_clean, _ = model(x_clean, x_masked, mask)
+    pred, target, z_clean, _, _ = model(x_clean, x_masked, mask)
     B, L, P = z_clean.shape
     loss = F.mse_loss(pred, target) + cfg.lam * sigreg_loss(
         z_clean.reshape(B * L, P), num_slices=cfg.sigreg_num_slices)

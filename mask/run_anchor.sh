@@ -2,10 +2,13 @@
 # MLM-anchor experiment — the matched-compute comparison that tests the claim:
 #   "MLM + JEPA latent prediction + SIGReg beats MLM alone, without an EMA teacher."
 #
-# Three runs, same architecture and compute:
-#   GPU 2:  1) mlm_only    — CE anchor only (pure MLM baseline; mse_weight=0, lam=0)
-#           2) mlm_jepa    — CE + JEPA MSE (no SIGReg)              [after 1 finishes]
+# Four runs, same architecture and compute:
+#   GPU 2:  1) mlm_only        — CE on predictor path only (matched-path baseline)
+#           2) mlm_jepa        — CE + JEPA MSE (no SIGReg)          [after 1]
 #   GPU 3:  3) mlm_jepa_sigreg — CE + JEPA MSE + SIGReg (full model)
+#           4) mlm_encoder_ctrl — CE directly on encoder output     [after 3]
+#              (standard BERT-style MLM: the honest external control — the
+#               encoder-readout number any anchored-JEPA claim must beat)
 #
 # Usage:  bash mask/run_anchor.sh
 #         nohup bash mask/run_anchor.sh &> anchor.log &
@@ -63,20 +66,23 @@ run() {
 ) &
 PID_GPU2=$!
 
-# GPU 3: full model — MLM + JEPA + SIGReg
+# GPU 3: full model, then the BERT-style encoder-CE control (sequential)
 (
   run 3 "anchor_${TS}_mlm_jepa_sigreg" \
       --mlm-beta "$BETA" --mse-weight 1.0 --lam "$LAM" \
       &> "logs/anchor_${TS}_mlm_jepa_sigreg.log"
+  run 3 "anchor_${TS}_mlm_encoder_ctrl" \
+      --mlm-beta "$BETA" --mse-weight 0.0 --lam 0.0 --mlm-head encoder \
+      &> "logs/anchor_${TS}_mlm_encoder_ctrl.log"
 ) &
 PID_GPU3=$!
 
 echo "GPU 2 chain PID: $PID_GPU2   (mlm_only → mlm_jepa)"
-echo "GPU 3 run   PID: $PID_GPU3   (mlm_jepa_sigreg)"
+echo "GPU 3 chain PID: $PID_GPU3   (mlm_jepa_sigreg → mlm_encoder_ctrl)"
 wait $PID_GPU2 && echo "==> GPU 2 chain done" || echo "==> GPU 2 chain FAILED"
-wait $PID_GPU3 && echo "==> GPU 3 run done"   || echo "==> GPU 3 run FAILED"
+wait $PID_GPU3 && echo "==> GPU 3 chain done" || echo "==> GPU 3 chain FAILED"
 
 echo ""
 echo "The comparison that matters (MTEB mean, W&B 'anchor_${TS}_*'):"
-echo "  mlm_only  vs  mlm_jepa  vs  mlm_jepa_sigreg"
-echo "If sigreg > jepa > only: JEPA adds value on top of MLM, SIGReg on top of both."
+echo "  mlm_encoder_ctrl (BERT-style MLM)  vs  mlm_only  vs  mlm_jepa  vs  mlm_jepa_sigreg"
+echo "Headline claim needs: mlm_jepa_sigreg > mlm_encoder_ctrl (encoder readout)."
