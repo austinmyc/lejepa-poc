@@ -150,9 +150,11 @@ def main():
     ap.add_argument("--out", default="mteb_results")
     args = ap.parse_args()
 
+    gpu = os.environ.get("GPU", "3")
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", gpu)
     device = "cuda" if torch.cuda.is_available() else \
              "mps" if torch.backends.mps.is_available() else "cpu"
-    print(f"Device: {device}")
+    print(f"Device: {device}  (GPU={gpu})")
 
     all_scores = {}
     for name in args.models:
