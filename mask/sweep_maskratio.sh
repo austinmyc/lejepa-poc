@@ -57,9 +57,6 @@ run() {
 
 if [ "$HALF" = "A" ]; then
     # ── Half A (GPU 0 by default) ────────────────────────────────────────────
-    # Baseline: current config — reference point for this sweep
-    run "maskratio_${TS}_r15_random"  --mask-ratio 0.15 --mask-strategy random
-
     # 2x harder: forces encoder to recover more context
     run "maskratio_${TS}_r30_random"  --mask-ratio 0.30 --mask-strategy random
 
