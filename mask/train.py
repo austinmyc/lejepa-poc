@@ -206,6 +206,9 @@ if __name__ == "__main__":
     p.add_argument("--pred-layers", type=int,   default=Config.pred_layers)
     p.add_argument("--batch-size",  type=int,   default=Config.batch_size)
     p.add_argument("--seq-len",     type=int,   default=Config.seq_len)
+    p.add_argument("--mask-ratio",    type=float, default=Config.mask_ratio)
+    p.add_argument("--mask-strategy", type=str,   default=Config.mask_strategy,
+                   choices=["random", "span", "block"])
     p.add_argument("--no-normalize-target", action="store_true",
                    help="Predict raw (unnormalized) targets — known to diverge; for ablation only.")
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
@@ -226,6 +229,7 @@ if __name__ == "__main__":
         n_heads=a.n_heads, enc_layers=a.enc_layers, pred_layers=a.pred_layers,
         batch_size=a.batch_size, seq_len=a.seq_len,
         normalize_target=not a.no_normalize_target,
+        mask_ratio=a.mask_ratio, mask_strategy=a.mask_strategy,
         save_every=a.save_every,
         use_ema=a.ema, ema_decay=a.ema_decay,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
