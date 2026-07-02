@@ -150,16 +150,23 @@ class LeJEPAText(nn.Module):
         self.predictor = SpanPredictor(cfg)
         self.sigreg_grad_scale = cfg.sigreg_grad_scale
 
-    def forward(self, x_clean, x_masked, mask):
-        # Pass 1: clean path. grad_scale(α) gates SIGReg's gradient INTO the
-        # encoder only; projection still gets the full gradient (identity forward).
-        h_clean = self.encoder(x_clean)                          # (B, L, D)
-        z_clean = self.proj(grad_scale(h_clean, self.sigreg_grad_scale))  # (B, L, P)
-        target  = z_clean[mask].detach()                         # (M, P) — stop-grad for MSE
-
-        # Pass 2: masked path (full gradient to encoder via prediction)
-        z_masked = self.proj(self.encoder(x_masked))   # (B, L, P)
+    def forward(self, x_clean, x_masked, mask, ema_model=None):
+        # Masked path — always runs through the student (full gradient).
+        h_masked = self.encoder(x_masked)
+        z_masked = self.proj(h_masked)
         pred     = self.predictor(z_masked)[mask]      # (M, P)
+
+        if ema_model is not None:
+            # EMA path: target comes from the frozen teacher; no gradient.
+            with torch.no_grad():
+                h_clean = ema_model.encoder(x_clean)
+                z_clean = ema_model.proj(h_clean)
+            target = z_clean[mask]                     # (M, P) — already no-grad
+        else:
+            # No EMA: target is the student's own clean pass (stop-grad for MSE).
+            h_clean = self.encoder(x_clean)
+            z_clean = self.proj(grad_scale(h_clean, self.sigreg_grad_scale))
+            target  = z_clean[mask].detach()
 
         return pred, target, z_clean, h_clean
 

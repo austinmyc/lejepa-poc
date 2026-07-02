@@ -12,6 +12,7 @@ Run:
     python mask/train.py                 # Shakespeare (cfg default)
 """
 
+import copy
 import math
 import os
 
@@ -23,6 +24,12 @@ from model  import LeJEPAText
 from sigreg import sigreg_loss
 from data   import get_dataloader, make_masked_input
 from eval_mteb import run_mteb_eval
+
+
+@torch.no_grad()
+def update_ema(ema_model, student, decay):
+    for ema_p, s_p in zip(ema_model.parameters(), student.parameters()):
+        ema_p.lerp_(s_p, 1 - decay)
 
 
 def get_lr(step, cfg):
@@ -77,6 +84,13 @@ def train(cfg: Config):
     loader = get_dataloader(cfg)
     print(f"Parameters: {model.count_params():,}")
 
+    ema_model = None
+    if cfg.use_ema:
+        ema_model = copy.deepcopy(model).to(device)
+        for p in ema_model.parameters():
+            p.requires_grad_(False)
+        print(f"EMA teacher enabled (decay={cfg.ema_decay})")
+
     if cfg.use_wandb:
         import wandb
         from dotenv import load_dotenv
@@ -99,7 +113,7 @@ def train(cfg: Config):
         for pg in opt.param_groups:
             pg["lr"] = lr
 
-        pred, target, z_clean, h_clean = model(x_clean, x_masked, mask)
+        pred, target, z_clean, h_clean = model(x_clean, x_masked, mask, ema_model=ema_model)
 
         B, L, P = z_clean.shape
         if cfg.normalize_target:
@@ -118,6 +132,9 @@ def train(cfg: Config):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
         opt.step()
+
+        if ema_model is not None:
+            update_ema(ema_model, model, cfg.ema_decay)
 
         if step % cfg.log_every == 0:
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
@@ -192,6 +209,8 @@ if __name__ == "__main__":
     p.add_argument("--no-normalize-target", action="store_true",
                    help="Predict raw (unnormalized) targets — known to diverge; for ablation only.")
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
+    p.add_argument("--ema",         action="store_true", help="Enable EMA teacher.")
+    p.add_argument("--ema-decay",   type=float, default=Config.ema_decay)
     p.add_argument("--wandb",       action="store_true")
     p.add_argument("--mteb",        action="store_true",
                    help="Run MTEB eval on the final checkpoint after training.")
@@ -207,5 +226,7 @@ if __name__ == "__main__":
         n_heads=a.n_heads, enc_layers=a.enc_layers, pred_layers=a.pred_layers,
         batch_size=a.batch_size, seq_len=a.seq_len,
         normalize_target=not a.no_normalize_target,
-        save_every=a.save_every, use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
+        save_every=a.save_every,
+        use_ema=a.ema, ema_decay=a.ema_decay,
+        use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))

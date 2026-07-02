@@ -80,5 +80,9 @@ class Config:
     wandb_project:  str  = "lejepa"
     run_name:       str  = "lejepa_mask"
 
+    # ── EMA teacher ────────────────────────────────────────────────────────
+    use_ema:        bool  = False
+    ema_decay:      float = 0.999  # τ: ema = τ*ema + (1-τ)*student each step
+
     # ── Post-training MTEB eval ────────────────────────────────────────────
     run_mteb:       bool = False   # run MTEB eval after training finishes
