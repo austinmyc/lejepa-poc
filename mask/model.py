@@ -150,6 +150,14 @@ class LeJEPAText(nn.Module):
         self.predictor = SpanPredictor(cfg)
         self.sigreg_grad_scale = cfg.sigreg_grad_scale
 
+        # MLM anchor head: decodes predictor output back to token logits at
+        # masked positions. Only built when mlm_beta > 0 (pure JEPA otherwise).
+        # getattr for backward-compat with checkpoints pickled before this field.
+        self.decoder = (nn.Linear(cfg.d_proj, cfg.vocab_size)
+                        if getattr(cfg, "mlm_beta", 0.0) > 0 else None)
+        if self.decoder is not None:
+            _init_weights(self.decoder)
+
     def forward(self, x_clean, x_masked, mask, ema_model=None):
         # Masked path — always runs through the student (full gradient).
         h_masked = self.encoder(x_masked)

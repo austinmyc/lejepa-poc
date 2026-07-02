@@ -84,5 +84,16 @@ class Config:
     use_ema:        bool  = False
     ema_decay:      float = 0.999  # τ: ema = τ*ema + (1-τ)*student each step
 
+    # ── MLM anchor (data-grounded auxiliary loss) ──────────────────────────
+    # β > 0 adds a token-decoder head on the predictor output at masked
+    # positions: loss += β * CE(decode(pred_M), tokens_M). This anchors the
+    # latent space to data and breaks the chicken-and-egg problem of pure
+    # latent prediction from scratch (random targets teach nothing).
+    # β = 0 disables the head entirely (pure JEPA, original behaviour).
+    mlm_beta:       float = 0.0
+    # Weight on the JEPA MSE term. 0 + mlm_beta>0 = pure MLM baseline with the
+    # same architecture (matched-compute control for the anchor experiment).
+    mse_weight:     float = 1.0
+
     # ── Post-training MTEB eval ────────────────────────────────────────────
     run_mteb:       bool = False   # run MTEB eval after training finishes

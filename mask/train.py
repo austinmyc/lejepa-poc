@@ -126,7 +126,15 @@ def train(cfg: Config):
                           num_slices=cfg.sigreg_num_slices,
                           num_points=cfg.sigreg_num_points,
                           global_step=step)
-        loss = mse + cfg.lam * reg
+        loss = cfg.mse_weight * mse + cfg.lam * reg
+
+        # MLM anchor: decode predictor output → token logits at masked
+        # positions. Grounds the latent space in data (see config.mlm_beta).
+        ce = torch.tensor(0.0, device=device)
+        if model.decoder is not None:
+            logits = model.decoder(pred)               # (M, vocab)
+            ce = F.cross_entropy(logits, x_clean[mask])
+            loss = loss + cfg.mlm_beta * ce
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -138,9 +146,10 @@ def train(cfg: Config):
 
         if step % cfg.log_every == 0:
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
-                  f"reg {reg.item():.4f} | masked {int(mask.sum())} | lr {lr:.2e}")
+                  f"reg {reg.item():.4f} | ce {ce.item():.4f} | masked {int(mask.sum())} | lr {lr:.2e}")
             if cfg.use_wandb:
                 wandb.log({"loss": loss.item(), "mse": mse.item(), "reg": reg.item(),
+                           "ce": ce.item(),
                            "lr": lr, "masked_tokens": int(mask.sum())}, step=step)
 
         if step % cfg.rank_every == 0:
@@ -214,6 +223,10 @@ if __name__ == "__main__":
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
     p.add_argument("--ema",         action="store_true", help="Enable EMA teacher.")
     p.add_argument("--ema-decay",   type=float, default=Config.ema_decay)
+    p.add_argument("--mlm-beta",    type=float, default=Config.mlm_beta,
+                   help="Weight of the MLM anchor CE loss (0 = pure JEPA, no decoder head).")
+    p.add_argument("--mse-weight",  type=float, default=Config.mse_weight,
+                   help="Weight of the JEPA MSE term (0 + --mlm-beta = pure MLM baseline).")
     p.add_argument("--wandb",       action="store_true")
     p.add_argument("--mteb",        action="store_true",
                    help="Run MTEB eval on the final checkpoint after training.")
@@ -232,5 +245,6 @@ if __name__ == "__main__":
         mask_ratio=a.mask_ratio, mask_strategy=a.mask_strategy,
         save_every=a.save_every,
         use_ema=a.ema, ema_decay=a.ema_decay,
+        mlm_beta=a.mlm_beta, mse_weight=a.mse_weight,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))
