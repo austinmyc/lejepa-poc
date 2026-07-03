@@ -2,11 +2,13 @@
 # MLM-anchor experiment — the matched-compute comparison that tests the claim:
 #   "MLM + JEPA latent prediction + SIGReg beats MLM alone, without an EMA teacher."
 #
-# Four runs, same architecture and compute:
+# Five runs, same architecture and compute:
 #   GPU 2:  1) mlm_only        — CE on predictor path only (matched-path baseline)
-#           2) mlm_jepa        — CE + JEPA MSE (no SIGReg)          [after 1]
-#   GPU 3:  3) mlm_jepa_sigreg — CE + JEPA MSE + SIGReg (full model)
-#           4) mlm_encoder_ctrl — CE directly on encoder output     [after 3]
+#           2) mlm_jepa        — CE + JEPA MSE, no collapse mechanism [after 1]
+#           3) mlm_jepa_ema    — CE + JEPA MSE + EMA teacher          [after 2]
+#              (≈ Boukhari 2606.05173 recipe: the head-to-head vs SIGReg)
+#   GPU 3:  4) mlm_jepa_sigreg — CE + JEPA MSE + SIGReg (ours)
+#           5) mlm_encoder_ctrl — CE directly on encoder output      [after 4]
 #              (standard BERT-style MLM: the honest external control — the
 #               encoder-readout number any anchored-JEPA claim must beat)
 #
@@ -63,6 +65,9 @@ run() {
   run 2 "anchor_${TS}_mlm_jepa" \
       --mlm-beta "$BETA" --mse-weight 1.0 --lam 0.0 \
       &> "logs/anchor_${TS}_mlm_jepa.log"
+  run 2 "anchor_${TS}_mlm_jepa_ema" \
+      --mlm-beta "$BETA" --mse-weight 1.0 --lam 0.0 --ema --ema-decay 0.999 \
+      &> "logs/anchor_${TS}_mlm_jepa_ema.log"
 ) &
 PID_GPU2=$!
 
@@ -77,12 +82,14 @@ PID_GPU2=$!
 ) &
 PID_GPU3=$!
 
-echo "GPU 2 chain PID: $PID_GPU2   (mlm_only → mlm_jepa)"
+echo "GPU 2 chain PID: $PID_GPU2   (mlm_only → mlm_jepa → mlm_jepa_ema)"
 echo "GPU 3 chain PID: $PID_GPU3   (mlm_jepa_sigreg → mlm_encoder_ctrl)"
 wait $PID_GPU2 && echo "==> GPU 2 chain done" || echo "==> GPU 2 chain FAILED"
 wait $PID_GPU3 && echo "==> GPU 3 chain done" || echo "==> GPU 3 chain FAILED"
 
 echo ""
 echo "The comparison that matters (MTEB mean, W&B 'anchor_${TS}_*'):"
-echo "  mlm_encoder_ctrl (BERT-style MLM)  vs  mlm_only  vs  mlm_jepa  vs  mlm_jepa_sigreg"
-echo "Headline claim needs: mlm_jepa_sigreg > mlm_encoder_ctrl (encoder readout)."
+echo "  mlm_encoder_ctrl (BERT-style MLM)  vs  mlm_only  vs  mlm_jepa"
+echo "  vs  mlm_jepa_ema (Boukhari-style)  vs  mlm_jepa_sigreg (ours)"
+echo "Headline claims: sigreg > encoder_ctrl (JEPA adds value over MLM),"
+echo "                 sigreg >= ema        (SIGReg replaces the EMA teacher)."
