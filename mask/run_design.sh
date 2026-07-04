@@ -51,6 +51,7 @@ run() {
       --mask-ratio 0.15 --mask-strategy span --span-len "$SPANLEN" \
       --no-normalize-target \
       --mlm-beta "$BETA" --mlm-head encoder --mse-weight 0.0 \
+      --save-every 10000 \
       --wandb --mteb --run-name "$NAME" \
       "$@" &> "logs/${NAME}.log" &
     echo "  launched $NAME on GPU $GPU_ID (PID $!)"
