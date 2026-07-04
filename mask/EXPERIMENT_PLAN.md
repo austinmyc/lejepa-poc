@@ -1,0 +1,104 @@
+# Anchored Text-JEPA — Experiment Plan
+
+**Thesis for the paper:** JEPA-style latent prediction (predictor + projection +
+SIGReg, no EMA teacher) improves text encoder pretraining over pure MLM — from
+scratch — with the predictor earning its contribution where token-space
+supervision is weakest (long masked spans).
+
+Architecture under test (fixed since round 2):
+
+```
+x_masked → Encoder → h_masked ──→ CE head (decode masked tokens)     [anchor]
+                        └→ Proj → Predictor → pred_M ─ MSE → z_clean[mask] (stop-grad)
+x_clean  → Encoder → h_clean → grad_scale(α) → Proj → z_clean ─ SIGReg [geometry]
+```
+
+Eval: frozen-encoder mean-pool → MTEB slice (STSB, SICK-R, Banking77, 20NG).
+Reference points: BERT-base no-FT = 0.483 mean; our `mlm_encoder_ctrl` = 0.4485.
+
+---
+
+## RQ1 — Can pure latent JEPA bootstrap from scratch in text?  ✅ ANSWERED: NO
+
+13-run ablation (lam × normalize_target × EMA × mask ratio/strategy, 30k steps
+each). Ceiling 0.164 vs BERT 0.483. Mechanism identified (diagnose.py):
+normalized latent MSE sits at its chance floor 2/P for the entire run; the
+predictor collapses to a near-constant (R²=0.007, eff_rank 5.7/768). Random
+text encoders give zero-information targets — the chicken-and-egg failure.
+**Paper role: motivation + analysis section. Done.**
+
+## RQ2 — Does a CE anchor fix it, and where must CE attach?  ✅ ANSWERED
+
+Round 1 (anchor_*): CE anchor works (0.38–0.45 vs 0.164). Attach point matters
+more than expected:
+- CE on predictor output (proj space): 0.3806; +SIGReg → 0.3043. SIGReg
+  isotropizes the space CE must decode from — geometric conflict.
+- CE on encoder output (BERT-style): 0.4485. MSE alone was neutral (0.3726 vs
+  0.3806); the damage was specifically SIGReg-on-the-decode-space.
+- EMA arm: encoder eff_rank collapsed to ~19, mse exploded to ~29.
+**Paper role: the attach-point/geometry-conflict finding + mechanism table
+(none → drift, SIGReg → contained, EMA → collapse). Done.**
+
+## RQ3 — With CE in encoder space, do the JEPA terms help?  🔄 RUNNING (round 2)
+
+All arms: `--mlm-head encoder --mlm-beta 1.0 --no-normalize-target`, 30k steps.
+Baseline: `mlm_encoder_ctrl` (0.4485).
+
+| Arm | mse_w | lam | EMA | Tests |
+|---|---|---|---|---|
+| enc_jepa_sigreg | 1.0 | 0.001 | – | headline: JEPA+SIGReg > MLM? |
+| enc_jepa_sigreg_msew01 | 0.1 | 0.001 | – | gentler latent dose |
+| enc_jepa_ema | 1.0 | 0 | ✓ | SIGReg-vs-EMA head-to-head |
+
+Success criteria: `enc_jepa_sigreg ≥ ctrl` on MTEB **and** better encoder
+geometry (eff_rank > 117.7, mean_cos < 0.058) → "geometry gains at accuracy
+parity or better" (strictly stronger than Boukhari 2606.05173, who got geometry
+gains at accuracy-neutral with an EMA teacher). `sigreg > ema` → EMA-free claim.
+
+## RQ4 — Does the PREDICTOR contribute where CE breaks down?  ⏳ ROUND 3 (the JEPA-defining test)
+
+Rationale: 15% random single-token masking is the regime where CE supervision
+is strongest and latent prediction most redundant. JEPA's raison d'être
+(I-JEPA, LeCun position paper) is abstract prediction of large missing regions
+— where exact-token CE entropy explodes and its signal degrades.
+
+**Span-length sweep** at fixed total mask budget (15% of tokens), varying span
+length L_span ∈ {1, 4, 8, 16} (needs a small `--span-len` addition to
+data.py's span strategy). At each L_span, two arms:
+- `mlm_only(L_span)`  — CE only
+- `mlm_jepa(L_span)`  — CE + MSE + SIGReg (round-2 winner config)
+
+**Hypothesis: Δ(jepa − only) grows with L_span.** If confirmed → headline JEPA
+claim: *latent prediction contributes precisely where token-space supervision
+breaks down*. Also retroactively explains RQ1's mask-ratio null (no anchor to
+bootstrap from). 8 runs; 2 GPUs × ~4 days at 30k steps, or drop to
+{1, 8, 16} = 6 runs.
+
+## RQ5 — Credit attribution + rigor (after RQ3/RQ4 pick a winner)
+
+1. **Predictor-free ablation**: `mse_weight=0, lam=0.001, mlm_head=encoder` —
+   CE + SIGReg, no latent prediction. If this matches the winner, the paper is
+   about SIGReg, not JEPA; if it's worse, the predictor is load-bearing.
+   (One run. The single most important control for reviewer defense.)
+2. **α (sigreg_grad_scale) sweep** {0, 0.3, 1.0} on the winner — in the
+   anchored regime α is a geometry-dose dial, not collapse insurance; find
+   whether encoder isotropy has an optimum.
+3. **Seeds**: add `--seed`; ×3 on winner + ctrl. Single-seed deltas < ~0.03
+   MTEB mean are not claimable.
+4. **Scale check**: winner + ctrl at 120k steps — does the gap survive 4× data?
+5. **Wider eval**: add held-out MTEB tasks (e.g. STS12-16, EmotionClassification,
+   RedditClustering) to whatever wins before believing tuned numbers.
+
+---
+
+## Paper skeleton (outcome-dependent)
+
+- §3 Why from-scratch text JEPA fails: chance floor, degenerate predictor (RQ1)
+- §4 Anchored JEPA: attach-point geometry conflict, mechanism table (RQ2)
+- §5 Main result: one of
+  - (a) JEPA+SIGReg > MLM at parity geometry-and-accuracy (RQ3 win)
+  - (b) predictor earns its place on long spans (RQ4 win — strongest version)
+  - (c) honest null: latent term inert in text even anchored; SIGReg as
+        drop-in geometry regularizer for MLM; why text ≠ vision for JEPA
+- §6 SIGReg vs EMA: EMA-free JEPA in text (either way — EMA collapses)
+- Every outcome above is publishable; (b) > (a) > (c) in venue ambition.
