@@ -65,18 +65,29 @@ neutral). (4) Mechanism table: no mechanism → mse drifts (peak ~10, MTEB
 survives); SIGReg → mse contained (0.73) but decode-space conflict; EMA →
 target-scale explosion (mse 29) + encoder rank collapse (118→36).
 
-## RQ3 — round 2 (CE on encoder + JEPA terms) + controls. LAUNCHED 2026-07-05, pending
+## RQ3 → superseded by the designed loss (2026-07-05)
 
-| Run | Config | Tests | Result |
-|---|---|---|---|
-| anchor2 enc_jepa_sigreg | mse_w 1.0, lam .001, enc-CE | headline: JEPA+SIGReg > ctrl (.4485)? | ⏳ |
-| anchor2 enc_jepa_sigreg_msew01 | mse_w 0.1, lam .001 | gentler latent dose | ⏳ |
-| anchor2 enc_jepa_ema | mse_w 1.0, EMA .999 | SIGReg-vs-EMA at fixed attach | ⏳ |
-| anchor2 enc_sigreg_nopred | mse_w 0, lam .001 | predictor-free credit attribution | ⏳ |
-| anchor2 encoder_ctrl_rep2 | = ctrl, fresh init | baseline error bar | ⏳ |
+The planned round-2 per-token arms (enc_jepa_sigreg mse_w 1.0/0.1, enc_jepa_ema)
+were NOT run: round 1 already showed per-token latent MSE ≈ neutral next to CE,
+and the design principle (latent term must supervise what CE cannot express)
+says it's redundant by construction. GPU budget went to the pooled design
+instead. Deferred to wave 2 if needed: enc_jepa_ema (SIGReg-vs-EMA at encoder
+attach), encoder_ctrl seed repeat (error bar), enc_sigreg_nopred.
 
-Success criteria in EXPERIMENT_PLAN.md RQ3. Geometry targets: eff_rank > 118,
-cos < .058 at MTEB ≥ .4485.
+## Wave 1 — designed loss @ L=8 spans (run_design.sh). PENDING
+
+All: 15% budget, span masking L=8, enc-CE β=1, mse_weight=0, seed 1337.
+Baseline caveat: ctrl here uses span masking — not directly comparable to the
+.4485 random-masking ctrl; compare within-wave.
+
+| Run | w_span | w_glob | lam | Tests | Result |
+|---|---|---|---|---|---|
+| design L8_ctrl | 0 | 0 | 0 | baseline at L=8 masking | ⏳ |
+| design L8_jepa_full | 1.0 | 0.5 | .001 | the designed loss | ⏳ |
+| design L8_jepa_span | 1.0 | 0 | .001 | composition term alone (= RQ4 L=8 jepa arm) | ⏳ |
+| design L8_jepa_glob | 0 | 0.5 | .001 | readout term alone | ⏳ |
+
+Geometry targets unchanged: eff_rank > 118, cos < .058 at MTEB ≥ ctrl.
 
 ## RQ4 — span-length sweep (pooled JEPA terms). SCRIPTED, not launched
 
