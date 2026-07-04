@@ -1,5 +1,8 @@
 # Anchored Text-JEPA — Experiment Plan
 
+> All completed-run numbers live in [RESULTS.md](RESULTS.md) — one row per run,
+> updated when each run's MTEB lands.
+
 **Thesis for the paper:** JEPA-style latent prediction (predictor + projection +
 SIGReg, no EMA teacher) improves text encoder pretraining over pure MLM — from
 scratch — with the predictor earning its contribution where token-space
