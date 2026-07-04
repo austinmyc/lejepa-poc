@@ -85,7 +85,13 @@ bootstrap from). 8 runs; 2 GPUs × ~4 days at 30k steps, or drop to
    whether encoder isotropy has an optimum.
 3. **Seeds**: add `--seed`; ×3 on winner + ctrl. Single-seed deltas < ~0.03
    MTEB mean are not claimable.
-4. **Scale check**: winner + ctrl at 120k steps — does the gap survive 4× data?
+4. **Scale check (staged protocol)**: 30k = screening tier — explore widely,
+   trust rankings not absolute numbers. 120k (~35 h/run, ≈2B tokens ≈ BERT
+   budget) = confirmation tier — only for survivors: best JEPA arm +
+   encoder_ctrl + EMA counterpart, ×3 seeds ≈ 9 runs ≈ 3–4 days on 4 GPUs.
+   This 120k×3-seed grid IS the paper's main table; the claim is "the gap
+   survives/grows with 4× data", and ctrl at 120k doubles as a
+   BERT-budget-matched baseline. Everything else stays at 30k permanently.
 5. **Wider eval**: add held-out MTEB tasks (e.g. STS12-16, EmotionClassification,
    RedditClustering) to whatever wins before believing tuned numbers.
 
