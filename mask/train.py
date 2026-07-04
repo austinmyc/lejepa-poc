@@ -32,6 +32,39 @@ def update_ema(ema_model, student, decay):
         ema_p.lerp_(s_p, 1 - decay)
 
 
+def masked_span_ids(mask):
+    """(B, L) bool → (B, L) int: 0 = unmasked; 1..K = contiguous-span index per row."""
+    prev = torch.zeros_like(mask)
+    prev[:, 1:] = mask[:, :-1]
+    starts = mask & ~prev
+    return torch.cumsum(starts.long(), dim=1) * mask.long()
+
+
+def span_pooled_mse(pred_flat, target_flat, mask, span_ids):
+    """
+    MSE between mean-pooled prediction and target over each masked span.
+    pred_flat/target_flat: (M, P) in mask order; span_ids: (B, L) from
+    masked_span_ids. Each span contributes one pooled vector (equal weight).
+    """
+    B, L = mask.shape
+    K = int(span_ids.max())
+    if K == 0:
+        return pred_flat.new_tensor(0.0)
+    row = torch.arange(B, device=mask.device).unsqueeze(1).expand(B, L)
+    key = (row * (K + 1) + span_ids)[mask]              # (M,) flat group ids
+    n_groups = B * (K + 1)
+    counts = torch.bincount(key, minlength=n_groups)
+    used = counts > 0
+    denom = counts.clamp(min=1).unsqueeze(1).float()
+
+    def pool(v):
+        s = torch.zeros(n_groups, v.shape[1], device=v.device, dtype=v.dtype)
+        s.index_add_(0, key, v)
+        return (s / denom)[used]
+
+    return F.mse_loss(pool(pred_flat), pool(target_flat))
+
+
 def get_lr(step, cfg):
     """Linear warmup → cosine decay to 10% of base lr."""
     if step < cfg.warmup_steps:
@@ -72,6 +105,7 @@ def space_geometry(x):
 
 
 def train(cfg: Config):
+    torch.manual_seed(cfg.seed)
     device = "cuda" if torch.cuda.is_available() else \
              "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {device}  |  data: "
@@ -113,7 +147,8 @@ def train(cfg: Config):
         for pg in opt.param_groups:
             pg["lr"] = lr
 
-        pred, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask, ema_model=ema_model)
+        pred_all, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask, ema_model=ema_model)
+        pred = pred_all[mask]                            # (M, P) per-token view
 
         B, L, P = z_clean.shape
         if cfg.normalize_target:
@@ -127,6 +162,17 @@ def train(cfg: Config):
                           num_points=cfg.sigreg_num_points,
                           global_step=step)
         loss = cfg.mse_weight * mse + cfg.lam * reg
+
+        # Pooled JEPA terms — supervise composition (span) and the mean-pool
+        # readout (global), which token-level CE cannot express.
+        l_span = torch.tensor(0.0, device=device)
+        l_glob = torch.tensor(0.0, device=device)
+        if cfg.w_span > 0:
+            l_span = span_pooled_mse(pred, target, mask, masked_span_ids(mask))
+            loss = loss + cfg.w_span * l_span
+        if cfg.w_glob > 0:
+            l_glob = F.mse_loss(pred_all.mean(dim=1), z_clean.mean(dim=1).detach())
+            loss = loss + cfg.w_glob * l_glob
 
         # MLM anchor: decode back to token logits at masked positions.
         # Grounds the latent space in data (see config.mlm_beta / mlm_head).
@@ -147,10 +193,12 @@ def train(cfg: Config):
 
         if step % cfg.log_every == 0:
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
-                  f"reg {reg.item():.4f} | ce {ce.item():.4f} | masked {int(mask.sum())} | lr {lr:.2e}")
+                  f"reg {reg.item():.4f} | ce {ce.item():.4f} | "
+                  f"span {l_span.item():.4f} | glob {l_glob.item():.4f} | "
+                  f"masked {int(mask.sum())} | lr {lr:.2e}")
             if cfg.use_wandb:
                 wandb.log({"loss": loss.item(), "mse": mse.item(), "reg": reg.item(),
-                           "ce": ce.item(),
+                           "ce": ce.item(), "l_span": l_span.item(), "l_glob": l_glob.item(),
                            "lr": lr, "masked_tokens": int(mask.sum())}, step=step)
 
         if step % cfg.rank_every == 0:
@@ -219,6 +267,13 @@ if __name__ == "__main__":
     p.add_argument("--mask-ratio",    type=float, default=Config.mask_ratio)
     p.add_argument("--mask-strategy", type=str,   default=Config.mask_strategy,
                    choices=["random", "span", "block"])
+    p.add_argument("--span-len",      type=int,   default=Config.span_len,
+                   help="Fixed span length for span strategy (0 = random 3-9).")
+    p.add_argument("--w-span",        type=float, default=Config.w_span,
+                   help="Weight of the span-pooled latent MSE (composition term).")
+    p.add_argument("--w-glob",        type=float, default=Config.w_glob,
+                   help="Weight of the global (sequence-mean) latent MSE.")
+    p.add_argument("--seed",          type=int,   default=Config.seed)
     p.add_argument("--no-normalize-target", action="store_true",
                    help="Predict raw (unnormalized) targets — known to diverge; for ablation only.")
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
@@ -246,9 +301,10 @@ if __name__ == "__main__":
         n_heads=a.n_heads, enc_layers=a.enc_layers, pred_layers=a.pred_layers,
         batch_size=a.batch_size, seq_len=a.seq_len,
         normalize_target=not a.no_normalize_target,
-        mask_ratio=a.mask_ratio, mask_strategy=a.mask_strategy,
+        mask_ratio=a.mask_ratio, mask_strategy=a.mask_strategy, span_len=a.span_len,
         save_every=a.save_every,
         use_ema=a.ema, ema_decay=a.ema_decay,
         mlm_beta=a.mlm_beta, mse_weight=a.mse_weight, mlm_head=a.mlm_head,
+        w_span=a.w_span, w_glob=a.w_glob, seed=a.seed,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))

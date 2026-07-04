@@ -27,6 +27,9 @@ class Config:
     # ratio ~ Uniform(lo, hi) instead of using the fixed mask_ratio. Exposes the
     # model to a spread of difficulties. Empty () = disabled (fixed ratio).
     mask_ratio_range: tuple = ()
+    # Fixed span length for the "span" strategy (RQ4 span-length sweep).
+    # 0 = legacy behaviour (random lengths 3–9 per span).
+    span_len:      int   = 0
 
     # ── Prediction target ──────────────────────────────────────────────────
     # L2-normalize pred and target before MSE (direction-only prediction). The
@@ -94,9 +97,21 @@ class Config:
     # Where the CE head attaches: "pred" (predictor output — anchored JEPA) or
     # "encoder" (encoder(x_masked) output — standard BERT-style MLM control).
     mlm_head:       str   = "pred"
-    # Weight on the JEPA MSE term. 0 + mlm_beta>0 = pure MLM baseline with the
-    # same architecture (matched-compute control for the anchor experiment).
+    # Weight on the per-token JEPA MSE term. 0 + mlm_beta>0 = pure MLM baseline
+    # with the same architecture (matched-compute control).
     mse_weight:     float = 1.0
+
+    # ── Pooled JEPA terms (supervise what token CE cannot express) ─────────
+    # w_span: MSE between the mean-pooled predictor output over each masked
+    #         span and the pooled clean latent of that span — composition.
+    # w_glob: MSE between the sequence-mean predictor output (masked view) and
+    #         the sequence-mean clean latent — trains the mean-pool readout
+    #         MTEB evaluates. SIGReg keeps these pooled targets non-degenerate.
+    w_span:         float = 0.0
+    w_glob:         float = 0.0
+
+    # ── Reproducibility ────────────────────────────────────────────────────
+    seed:           int   = 1337
 
     # ── Post-training MTEB eval ────────────────────────────────────────────
     run_mteb:       bool = False   # run MTEB eval after training finishes

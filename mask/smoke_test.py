@@ -33,7 +33,9 @@ def main():
     M = int(mask.sum())
 
     # ── 1. shapes ─────────────────────────────────────────────────────────
-    pred, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask)
+    pred_all, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask)
+    assert pred_all.shape == (cfg.batch_size, cfg.seq_len, cfg.d_proj), pred_all.shape
+    pred = pred_all[mask]
     assert pred.shape   == (M, cfg.d_proj),                     pred.shape
     assert target.shape == (M, cfg.d_proj),                     target.shape
     assert z_clean.shape == (cfg.batch_size, cfg.seq_len, cfg.d_proj), z_clean.shape
@@ -59,8 +61,8 @@ def main():
 
     # ── 4. MSE grad reaches the predictor ─────────────────────────────────
     model.zero_grad()
-    pred, target, _, _, _ = model(x_clean, x_masked, mask)
-    mse = F.mse_loss(pred, target)
+    pred_all, target, _, _, _ = model(x_clean, x_masked, mask)
+    mse = F.mse_loss(pred_all[mask], target)
     mse.backward()
     pred_params = [p for p in model.predictor.parameters() if p.grad is not None]
     pred_grad = sum(p.grad.abs().sum() for p in pred_params)
@@ -102,9 +104,9 @@ def main():
 
     # ── 6. one end-to-end step ────────────────────────────────────────────
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    pred, target, z_clean, _, _ = model(x_clean, x_masked, mask)
+    pred_all, target, z_clean, _, _ = model(x_clean, x_masked, mask)
     B, L, P = z_clean.shape
-    loss = F.mse_loss(pred, target) + cfg.lam * sigreg_loss(
+    loss = F.mse_loss(pred_all[mask], target) + cfg.lam * sigreg_loss(
         z_clean.reshape(B * L, P), num_slices=cfg.sigreg_num_slices)
     opt.zero_grad(); loss.backward(); opt.step()
     assert torch.isfinite(loss), "loss must be finite"

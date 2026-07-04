@@ -93,8 +93,8 @@ def main():
         x_clean = next(data_iter).to(device)
         x_masked, mask = make_masked_input(x_clean, cfg)
 
-        pred, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask)
-        preds.append(pred.float().cpu())
+        pred_all, target, z_clean, h_clean, h_masked = model(x_clean, x_masked, mask)
+        preds.append(pred_all[mask].float().cpu())
         targets.append(target.float().cpu())
 
         # Context-shuffle: random tokens at all context positions, same mask.

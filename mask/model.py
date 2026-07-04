@@ -128,10 +128,12 @@ class SpanPredictor(nn.Module):
 class LeJEPAText(nn.Module):
     """
     forward() returns:
-        pred    — (M, P)    predictor output at masked positions
-        target  — (M, P)    z_clean at masked positions, DETACHED
-        z_clean — (B, L, P) clean projection output (SIGReg space)
-        h_clean — (B, L, D) clean ENCODER output (for encoder-space geometry logging)
+        pred     — (B, L, P) FULL predictor output (masked view); index [mask]
+                   for per-token terms, mean-pool for span/global terms
+        target   — (M, P)    z_clean at masked positions, DETACHED
+        z_clean  — (B, L, P) clean projection output (SIGReg space)
+        h_clean  — (B, L, D) clean ENCODER output (geometry logging)
+        h_masked — (B, L, D) masked-view ENCODER output (encoder-level MLM head)
     M = mask.sum().
 
     `sigreg_grad_scale` (α) throttles how much of SIGReg's gradient reaches the
@@ -167,9 +169,12 @@ class LeJEPAText(nn.Module):
 
     def forward(self, x_clean, x_masked, mask, ema_model=None):
         # Masked path — always runs through the student (full gradient).
-        h_masked = self.encoder(x_masked)              # (B, L, D) — also returned
-        z_masked = self.proj(h_masked)                 # for the encoder-level MLM head
-        pred     = self.predictor(z_masked)[mask]      # (M, P)
+        h_masked = self.encoder(x_masked)              # (B, L, D) — for the
+        z_masked = self.proj(h_masked)                 # encoder-level MLM head
+        pred     = self.predictor(z_masked)            # (B, L, P) — FULL output;
+                                                       # callers index [mask] for
+                                                       # per-token terms, pool for
+                                                       # span/global terms
 
         if ema_model is not None:
             # EMA path: target comes from the frozen teacher; no gradient.

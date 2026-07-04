@@ -144,12 +144,14 @@ def make_masked_input(x: torch.Tensor, cfg) -> tuple[torch.Tensor, torch.Tensor]
         ).bool()
 
     elif cfg.mask_strategy == "span":
+        # Fixed span_len (RQ4 sweep) or legacy random lengths 3–9.
+        fixed = getattr(cfg, "span_len", 0)
         mask = torch.zeros(B, L, dtype=torch.bool, device=x.device)
         budget = int(ratio * L)
         for b in range(B):
             covered = 0
             while covered < budget:
-                span_len = torch.randint(3, 10, (1,)).item()
+                span_len = fixed if fixed > 0 else torch.randint(3, 10, (1,)).item()
                 start    = torch.randint(0, max(1, L - span_len), (1,)).item()
                 end      = min(start + span_len, L)
                 mask[b, start:end] = True
