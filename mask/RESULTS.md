@@ -92,6 +92,14 @@ All: 15% budget, span masking L=8, enc-CE β=1, mse_weight=0, seed 1337, 10k ckp
 arm craters across both rounds, latent-MSE-without-SIGReg was neutral (round-1
 mlm_jepa .373), and all three SIGReg wave-1 arms show the same ~1-nat CE
 elevation. Ranks fine → semantic scrambling, not rank collapse.
+(4) **Pooled chance floor (trajectory forensics):** l_span flatlined at ~0.125
+= 1/8 = variance of an 8-token mean-pool of SIGReg-whitened (unit-var) latents;
+l_glob flatlined at ~0.011 ≈ 1/128 — both terms learned only the mean, within
+2k steps, then contributed pure noise gradient for 28k steps while CE stalled
+~1 nat above ctrl (7.2–7.3 vs 6.07). Same disease as RQ1's 2/P floor, pooled
+form: SIGReg-whitened target space leaves ~no context-predictable variance.
+→ Wave-3 candidate: pool latent targets in ENCODER space (h_clean), keep
+SIGReg out of the target path.
 
 ## Wave 2 — culprit isolation @ L=8 (launched 2026-07-05)
 
