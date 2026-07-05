@@ -74,20 +74,32 @@ says it's redundant by construction. GPU budget went to the pooled design
 instead. Deferred to wave 2 if needed: enc_jepa_ema (SIGReg-vs-EMA at encoder
 attach), encoder_ctrl seed repeat (error bar), enc_sigreg_nopred.
 
-## Wave 1 — designed loss @ L=8 spans (run_design.sh). PENDING
+## Wave 1 — designed loss @ L=8 spans (run_design.sh). 2026-07-05. Verdict: NEGATIVE
 
-All: 15% budget, span masking L=8, enc-CE β=1, mse_weight=0, seed 1337.
-Baseline caveat: ctrl here uses span masking — not directly comparable to the
-.4485 random-masking ctrl; compare within-wave.
+All: 15% budget, span masking L=8, enc-CE β=1, mse_weight=0, seed 1337, 10k ckpts.
 
-| Run | w_span | w_glob | lam | Tests | Result |
+| Run | w_span | w_glob | lam | STS | SICK | B77 | 20NG | Mean | enc_rank/cos | CE@30k | GPU-h |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| design L8_ctrl | 0 | 0 | 0 | .4970 | .5451 | .5087 | .1737 | **.4311** | 59/.138 | 6.28 | 7.9 |
+| design L8_jepa_span | 1.0 | 0 | .001 | .1815 | .4194 | .1814 | .1066 | .2222 | 64/.098 | 7.21 | 8.0 |
+| design L8_jepa_full | 1.0 | 0.5 | .001 | .1383 | .3760 | .1592 | .1047 | .1945 | 54/.120 | 7.29 | 8.0 |
+| design L8_jepa_glob | 0 | 0.5 | .001 | ⏳ (running; CE elevated ~7.27 like the others) | | | | | | | |
+
+**Findings:** (1) Latent terms + SIGReg cost −.21 to −.24 mean; STS hit hardest
+(.50→.14–.18). (2) Span-CE premise weakened: L8_ctrl .4311 ≈ random ctrl .4485
+(−.017, within plausible noise) despite CE 6.3 vs 3.9 nats — token-CE difficulty
+≠ embedding damage. (3) Suspect = SIGReg-into-encoder: every SIGReg(α=1)+anchor
+arm craters across both rounds, latent-MSE-without-SIGReg was neutral (round-1
+mlm_jepa .373), and all three SIGReg wave-1 arms show the same ~1-nat CE
+elevation. Ranks fine → semantic scrambling, not rank collapse.
+
+## Wave 2 — culprit isolation @ L=8 (launched 2026-07-05)
+
+| Run | w_span | lam | α | Tests | Result |
 |---|---|---|---|---|---|
-| design L8_ctrl | 0 | 0 | 0 | baseline at L=8 masking | ⏳ |
-| design L8_jepa_full | 1.0 | 0.5 | .001 | the designed loss | ⏳ |
-| design L8_jepa_span | 1.0 | 0 | .001 | composition term alone (= RQ4 L=8 jepa arm) | ⏳ |
-| design L8_jepa_glob | 0 | 0.5 | .001 | readout term alone | ⏳ |
-
-Geometry targets unchanged: eff_rank > 118, cos < .058 at MTEB ≥ ctrl.
+| design2_L8_span_nosig | 1.0 | 0 | – | latent term without SIGReg — innocent? | ⏳ |
+| design2_L8_sigreg_only | 0 | .001 | 1.0 | SIGReg without latent — guilty alone? | ⏳ |
+| design2_L8_span_sig_a0 | 1.0 | .001 | 0.0 | SIGReg confined to proj (grad-scale rescue) | queued (GPU 0 after glob) |
 
 ## RQ4 — span-length sweep (pooled JEPA terms). SCRIPTED, not launched
 
