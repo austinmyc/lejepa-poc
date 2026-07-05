@@ -105,9 +105,23 @@ SIGReg out of the target path.
 
 | Run | w_span | lam | α | Tests | Result |
 |---|---|---|---|---|---|
-| design2_L8_span_nosig | 1.0 | 0 | – | latent term without SIGReg — innocent? | ⏳ |
-| design2_L8_sigreg_only | 0 | .001 | 1.0 | SIGReg without latent — guilty alone? | ⏳ |
-| design2_L8_span_sig_a0 | 1.0 | .001 | 0.0 | SIGReg confined to proj (grad-scale rescue) | queued (GPU 0 after glob) |
+| design2_L8_span_nosig | 1.0 | 0 | – | latent term without SIGReg — innocent? | superseded by wave 3 |
+| design2_L8_sigreg_only | 0 | .001 | 1.0 | SIGReg without latent — guilty alone? | ⏳ (queue on GPU 0) |
+| design2_L8_span_sig_a0 | 1.0 | .001 | 0.0 | SIGReg confined to proj (grad-scale rescue) | deferred |
+
+## Wave 3 — encoder-space span-JEPA (--latent-space encoder). THE "JEPA WINS" BET
+
+Design from accumulated constraints: targets = pooled h_clean over masked spans
+(semantic, CE-grounded, NOT whitened — the pooled-floor fix); predictor at
+d_model; stop-grad targets, no EMA, no SIGReg in the loss (CE prevents collapse;
+SIGReg's encoder gradient shown toxic). data2vec-style targets, EMA-free.
+Baselines: L8_ctrl .4311 (same masking), random ctrl .4485 (absolute).
+Watch: l_span must keep DESCENDING — a flatline = floor again, kills the bet.
+
+| Run | w_span | latent_space | Tests | Result |
+|---|---|---|---|---|
+| design3_L8_encspan_w1 | 1.0 | encoder | flagship | ⏳ |
+| design3_L8_encspan_w01 | 0.1 | encoder | gentle dose (if w=1 taxes CE) | ⏳ |
 
 ## RQ4 — span-length sweep (pooled JEPA terms). SCRIPTED, not launched
 
