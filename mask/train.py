@@ -274,6 +274,9 @@ if __name__ == "__main__":
     p.add_argument("--w-glob",        type=float, default=Config.w_glob,
                    help="Weight of the global (sequence-mean) latent MSE.")
     p.add_argument("--seed",          type=int,   default=Config.seed)
+    p.add_argument("--latent-space",  type=str,   default=Config.latent_space,
+                   choices=["proj", "encoder"],
+                   help="Space for the latent-prediction task (targets + predictor).")
     p.add_argument("--no-normalize-target", action="store_true",
                    help="Predict raw (unnormalized) targets — known to diverge; for ablation only.")
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
@@ -305,6 +308,6 @@ if __name__ == "__main__":
         save_every=a.save_every,
         use_ema=a.ema, ema_decay=a.ema_decay,
         mlm_beta=a.mlm_beta, mse_weight=a.mse_weight, mlm_head=a.mlm_head,
-        w_span=a.w_span, w_glob=a.w_glob, seed=a.seed,
+        w_span=a.w_span, w_glob=a.w_glob, seed=a.seed, latent_space=a.latent_space,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))

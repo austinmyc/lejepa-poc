@@ -147,31 +147,42 @@ class LeJEPAText(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
-        self.encoder   = TokenEncoder(cfg)
-        self.proj      = ProjectionMLP(cfg.d_model, cfg.d_proj)
-        self.predictor = SpanPredictor(cfg)
+        self.encoder = TokenEncoder(cfg)
+        self.proj    = ProjectionMLP(cfg.d_model, cfg.d_proj)
+        # latent_space="encoder": the latent task runs in raw encoder space —
+        # predictor built at d_model, proj bypassed on the latent path (it
+        # remains constructed for checkpoint compatibility).
+        self.latent_space = getattr(cfg, "latent_space", "proj")
+        if self.latent_space == "encoder":
+            import dataclasses
+            self.predictor = SpanPredictor(dataclasses.replace(cfg, d_proj=cfg.d_model))
+        else:
+            self.predictor = SpanPredictor(cfg)
         self.sigreg_grad_scale = cfg.sigreg_grad_scale
 
         # MLM anchor head: decodes back to token logits at masked positions.
         # Attach point (cfg.mlm_head):
-        #   "pred"    — on predictor output (P dims): CE flows through the full
-        #               predictor→proj→encoder path (anchored JEPA).
+        #   "pred"    — on predictor output: CE flows through the full
+        #               predictor(→proj)→encoder path (anchored JEPA).
         #   "encoder" — on encoder(x_masked) output (D dims): standard BERT-style
         #               MLM; CE shapes the encoder directly (control arm).
         # Only built when mlm_beta > 0 (pure JEPA otherwise).
         # getattr for backward-compat with checkpoints pickled before these fields.
         self.mlm_head = getattr(cfg, "mlm_head", "pred")
-        d_dec = cfg.d_proj if self.mlm_head == "pred" else cfg.d_model
+        pred_dim = cfg.d_model if self.latent_space == "encoder" else cfg.d_proj
+        d_dec = pred_dim if self.mlm_head == "pred" else cfg.d_model
         self.decoder = (nn.Linear(d_dec, cfg.vocab_size)
                         if getattr(cfg, "mlm_beta", 0.0) > 0 else None)
         if self.decoder is not None:
             _init_weights(self.decoder)
 
     def forward(self, x_clean, x_masked, mask, ema_model=None):
+        enc_space = self.latent_space == "encoder"
+
         # Masked path — always runs through the student (full gradient).
-        h_masked = self.encoder(x_masked)              # (B, L, D) — for the
-        z_masked = self.proj(h_masked)                 # encoder-level MLM head
-        pred     = self.predictor(z_masked)            # (B, L, P) — FULL output;
+        h_masked = self.encoder(x_masked)              # (B, L, D)
+        z_masked = h_masked if enc_space else self.proj(h_masked)
+        pred     = self.predictor(z_masked)            # (B, L, P|D) FULL output;
                                                        # callers index [mask] for
                                                        # per-token terms, pool for
                                                        # span/global terms
@@ -180,13 +191,16 @@ class LeJEPAText(nn.Module):
             # EMA path: target comes from the frozen teacher; no gradient.
             with torch.no_grad():
                 h_clean = ema_model.encoder(x_clean)
-                z_clean = ema_model.proj(h_clean)
-            target = z_clean[mask]                     # (M, P) — already no-grad
+                z_clean = h_clean if enc_space else ema_model.proj(h_clean)
+            target = z_clean[mask]                     # already no-grad
         else:
             # No EMA: target is the student's own clean pass (stop-grad for MSE).
             h_clean = self.encoder(x_clean)
-            z_clean = self.proj(grad_scale(h_clean, self.sigreg_grad_scale))
-            target  = z_clean[mask].detach()
+            if enc_space:
+                z_clean = grad_scale(h_clean, self.sigreg_grad_scale)
+            else:
+                z_clean = self.proj(grad_scale(h_clean, self.sigreg_grad_scale))
+            target = z_clean[mask].detach()
 
         return pred, target, z_clean, h_clean, h_masked
 

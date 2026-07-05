@@ -101,6 +101,15 @@ class Config:
     # with the same architecture (matched-compute control).
     mse_weight:     float = 1.0
 
+    # Where the latent-prediction task lives:
+    #   "proj"    — predictor and targets in projection space (original design;
+    #               SIGReg-whitened targets → pooled chance floor, see RESULTS)
+    #   "encoder" — predictor and targets in raw encoder space (anisotropic,
+    #               CE-grounded, semantic — data2vec-style target choice).
+    #               proj is bypassed on the latent path; requires d_proj==d_model
+    #               only in the sense that the predictor is built at d_model.
+    latent_space:   str   = "proj"
+
     # ── Pooled JEPA terms (supervise what token CE cannot express) ─────────
     # w_span: MSE between the mean-pooled predictor output over each masked
     #         span and the pooled clean latent of that span — composition.
