@@ -118,10 +118,22 @@ SIGReg's encoder gradient shown toxic). data2vec-style targets, EMA-free.
 Baselines: L8_ctrl .4311 (same masking), random ctrl .4485 (absolute).
 Watch: l_span must keep DESCENDING — a flatline = floor again, kills the bet.
 
-| Run | w_span | latent_space | Tests | Result |
-|---|---|---|---|---|
-| design3_L8_encspan_w1 | 1.0 | encoder | flagship | ⏳ |
-| design3_L8_encspan_w01 | 0.1 | encoder | gentle dose (if w=1 taxes CE) | ⏳ |
+| Run | w_span | latent_space | STS | SICK | B77 | 20NG | Mean | CE@30k | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| design3_L8_encspan_w01 | 0.1 | encoder | .5047 | .5421 | .5102 | .1659 | .4307 | 6.28 | exact tie w/ ctrl |
+| design3_L8_encspan_w1 | 1.0 | encoder | .4740 | .5336 | .4989 | .1756 | .4205 | 6.30 | −.011 (noise-range) |
+
+(Also: w1 jepa_glob finished at .3064 — least-bad wave-1 SIGReg arm, pattern confirmed.)
+
+**Wave-3 verdict (2026-07-06): NEUTRAL.** Encoder-space targets eliminated the
+harm (zero CE tax, 6.28 = ctrl) but added nothing (w01 within .0004 of ctrl).
+l_span never descends (drifts up 0.015→0.075 as the target cloud grows with CE
+training). Combined with waves 1–2 and round 1: **latent prediction on top of a
+CE anchor is harmful when SIGReg-coupled, inert otherwise** — across two target
+spaces, three granularities, three doses, and three collapse mechanisms. This
+is the paper's central empirical claim. Remaining live positive axes:
+post-hoc manifold fitting (eval_manifold.py), split-space dual-readout (α=0),
+token-efficiency curves from saved 10k/20k ckpts.
 
 ## RQ4 — span-length sweep (pooled JEPA terms). SCRIPTED, not launched
 
