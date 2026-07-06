@@ -144,6 +144,8 @@ def main():
                     help="Max cloud points used to fit manfit/whitening.")
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--out", default="mteb_results")
+    ap.add_argument("--no-wandb", action="store_true",
+                    help="Skip W&B logging (default: log to austinmyc/lejepa).")
     args = ap.parse_args()
 
     gpu = os.environ.get("GPU", "0")
@@ -174,6 +176,21 @@ def main():
     rng = np.random.default_rng(0)
     all_scores = {t: {} for t in args.tasks}
 
+    wb = None
+    if not args.no_wandb:
+        try:
+            import wandb
+            from dotenv import load_dotenv
+            load_dotenv()
+            wandb.login(key=os.getenv("WANDB_API_KEY"))
+            wb = wandb.init(entity="austinmyc", project="lejepa",
+                            name=f"manifold_{model_name}",
+                            config={"model": model_name, "sigma": args.sigma,
+                                    "fit_max": args.fit_max, "tasks": args.tasks,
+                                    "transforms": args.transforms})
+        except Exception as e:
+            print(f"W&B unavailable ({e}) — continuing without logging.")
+
     for task_name in args.tasks:
         task = mteb.get_tasks(tasks=[task_name])[0]
         wrapper = TransformWrapper(base)
@@ -184,6 +201,7 @@ def main():
         all_scores[task_name]["raw"] = task_score(res_raw)
         cloud = np.concatenate(wrapper.recorded, axis=0)
         print(f"    raw={all_scores[task_name]['raw']:.4f}   cloud={cloud.shape}")
+        if wb: wb.log({f"manifold/{task_name}/raw": all_scores[task_name]["raw"]})
 
         # Scale-normalize so σ is comparable across models.
         sub = cloud[rng.choice(len(cloud), min(2000, len(cloud)), replace=False)]
@@ -204,6 +222,7 @@ def main():
             res = task.evaluate(wrapper, encode_kwargs={"batch_size": args.batch_size})
             all_scores[task_name][tf] = task_score(res)
             print(f"    {tf}={all_scores[task_name][tf]:.4f}")
+            if wb: wb.log({f"manifold/{task_name}/{tf}": all_scores[task_name][tf]})
             wrapper.transform = None
             wrapper.recorded = []   # don't re-record during/after transform passes
 
@@ -225,6 +244,10 @@ def main():
     with open(os.path.join(out_dir, f"scores_sig{args.sigma}.json"), "w") as f:
         json.dump(payload, f, indent=2)
     print(f"\nSaved → {out_dir}/scores_sig{args.sigma}.json")
+
+    if wb:
+        wb.log({f"manifold/mean/{t}": payload["means"][t] for t in args.transforms})
+        wb.finish()
 
 
 if __name__ == "__main__":
