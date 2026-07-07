@@ -131,9 +131,46 @@ l_span never descends (drifts up 0.015→0.075 as the target cloud grows with CE
 training). Combined with waves 1–2 and round 1: **latent prediction on top of a
 CE anchor is harmful when SIGReg-coupled, inert otherwise** — across two target
 spaces, three granularities, three doses, and three collapse mechanisms. This
-is the paper's central empirical claim. Remaining live positive axes:
-post-hoc manifold fitting (eval_manifold.py), split-space dual-readout (α=0),
-token-efficiency curves from saved 10k/20k ckpts.
+is the paper's central empirical claim.
+
+## Closing runs (2026-07-06) — error bar, split-space, post-hoc geometry
+
+| Run | Config | STS | SICK | B77 | 20NG | Mean | CE | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| design3_L8_ctrl_seed2024 | = L8_ctrl, seed 2024 | .4773 | .5413 | .4990 | .1705 | .4220 | 6.23 | **seed σ(mean) ≈ ±.01**; deltas < ~.015–.02 = noise |
+| design3_L8_splitspace | w_span .1 in PROJ space, lam .001, α=0 | .3553 | .4474 | .2827 | .1485 | .3084 | 7.18 | see below — mechanism refinement |
+
+**Seed-repeat implications:** wave-3 neutrality confirmed (w01 and w1 both
+inside ctrl's seed range); SIGReg-arm damages (−.14…−.24) are 10–20× noise —
+real; span-vs-random masking cost ≈ .02, marginal.
+
+**Split-space accident → sharper mechanism:** the arm (mis)configured the span
+term in proj space, so span-MSE pulled the encoder toward SIGReg-whitened
+pooled targets while α=0 blocked SIGReg's DIRECT encoder gradient. Damage
+replicated anyway (CE 7.18, mean .308 ≈ wave-1) → **the toxin is the whitened
+TARGET geometry traveling through the MSE path, not the regularizer gradient.**
+Also: dual-readout via SIGReg-only proj head is degenerate (isotropy without a
+data term preserves no semantics; adding one re-opens the target channel).
+
+**Post-hoc manifold fitting (eval_manifold.py, ctrl ckpt, W&B manifold_*):**
+
+| σ | raw mean | whiten mean | manfit mean | notes |
+|---|---|---|---|---|
+| 0.15 | .4485 | .4044 | .3922 | whiten: STS +.047, kills 20NG (.036) & B77 (−.093); manfit: only transform to HELP 20NG (+.016), hurts similarity |
+| 0.05 | .4485 | .4044 | .3949 | σ-insensitive; STS partial recovery (.4355→.4472), still ≪ raw |
+
+**No-free-geometric-lunch (final):** whitening helps only STS, manfit helps
+only clustering, nothing beats raw on the mean — post-hoc or in-training,
+geometry interventions trade task families. Axis closed.
+
+## Status: evidence table complete (2026-07-06)
+
+Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
+whitened-target toxicity (α ablation isolates pathway), latent inertness
+across all benign designs, EMA/SIGReg/none mechanism table, no-free-lunch
+post-hoc comparison, BERT-quality MLM recipe at ¼ budget (.4485, seed σ .01).
+Optional flourishes: proj-readout eval of splitspace ckpt; 120k ctrl scale-up
+(BERT-budget-matched baseline row).
 
 ## RQ4 — span-length sweep (pooled JEPA terms). SCRIPTED, not launched
 
