@@ -34,8 +34,10 @@ def _init_weights(module):
     elif isinstance(module, nn.Embedding):
         nn.init.trunc_normal_(module.weight, std=0.02)
     elif isinstance(module, nn.LayerNorm):
-        nn.init.ones_(module.weight)
-        nn.init.zeros_(module.bias)
+        if module.weight is not None:               # affine-less LN (AdaLN blocks)
+            nn.init.ones_(module.weight)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
 
 
 # ── gradient scaling ──────────────────────────────────────────────────────────
@@ -123,6 +125,54 @@ class SpanPredictor(nn.Module):
         return self.norm(self.transformer(x))
 
 
+# ── diffusion head ────────────────────────────────────────────────────────────
+
+class DiffusionHead(nn.Module):
+    """
+    LatentLM/MAR-style noise-prediction head: ε̂ = head(z_t, t, c).
+
+    Lightweight residual MLP with AdaLN-lite conditioning — each block's
+    LayerNorm output is scaled/shifted by a conditioning vector derived from
+    (timestep embedding, condition c). c is the pooled predictor output for a
+    masked span; gradients flow through c into predictor → encoder.
+    """
+
+    T_EMB = 128
+
+    def __init__(self, dim, n_layers=3):
+        super().__init__()
+        hidden = dim * 2
+        self.cond = nn.Sequential(nn.Linear(dim + self.T_EMB, hidden), nn.SiLU())
+        self.in_proj = nn.Linear(dim, hidden)
+        self.norms = nn.ModuleList(nn.LayerNorm(hidden, elementwise_affine=False)
+                                   for _ in range(n_layers))
+        self.adas  = nn.ModuleList(nn.Linear(hidden, 2 * hidden) for _ in range(n_layers))
+        self.ffns  = nn.ModuleList(nn.Sequential(nn.Linear(hidden, hidden * 2), nn.GELU(),
+                                                 nn.Linear(hidden * 2, hidden))
+                                   for _ in range(n_layers))
+        self.out_norm = nn.LayerNorm(hidden)
+        self.out = nn.Linear(hidden, dim)
+        # Standard small init (NOT AdaLN-Zero): zero-init modulation would give
+        # the condition c zero gradient at init — but c's gradient into the
+        # predictor/encoder is the entire point of this head.
+        self.apply(_init_weights)
+
+    def _t_embed(self, t):
+        half = self.T_EMB // 2
+        freqs = torch.exp(-torch.arange(half, device=t.device, dtype=torch.float32)
+                          * (torch.log(torch.tensor(10000.0)) / (half - 1)))
+        ang = t.float().unsqueeze(1) * freqs.unsqueeze(0)
+        return torch.cat([ang.sin(), ang.cos()], dim=1)
+
+    def forward(self, z_t, t, c):
+        g = self.cond(torch.cat([c, self._t_embed(t)], dim=1))
+        h = self.in_proj(z_t)
+        for norm, ada, ffn in zip(self.norms, self.adas, self.ffns):
+            scale, shift = ada(g).chunk(2, dim=1)
+            h = h + ffn(norm(h) * (1 + scale) + shift)
+        return self.out(self.out_norm(h))
+
+
 # ── full model ────────────────────────────────────────────────────────────────
 
 class LeJEPAText(nn.Module):
@@ -171,6 +221,10 @@ class LeJEPAText(nn.Module):
         self.mlm_head = getattr(cfg, "mlm_head", "pred")
         pred_dim = cfg.d_model if self.latent_space == "encoder" else cfg.d_proj
         d_dec = pred_dim if self.mlm_head == "pred" else cfg.d_model
+
+        # Diffusion head (distributional span prediction) — built only when used.
+        self.diff_head = (DiffusionHead(pred_dim)
+                          if getattr(cfg, "w_diff", 0.0) > 0 else None)
         self.decoder = (nn.Linear(d_dec, cfg.vocab_size)
                         if getattr(cfg, "mlm_beta", 0.0) > 0 else None)
         if self.decoder is not None:

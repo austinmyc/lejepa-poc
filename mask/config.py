@@ -119,6 +119,16 @@ class Config:
     w_span:         float = 0.0
     w_glob:         float = 0.0
 
+    # ── Diffusion head (LatentLM/MAR-style distributional latent prediction) ─
+    # Replaces point-MSE on pooled span targets with noise-prediction:
+    #   L_diff = E_t‖ε − ε_θ(√ᾱ_t·z + √(1−ᾱ_t)·ε, t, c)‖²,  c = pooled predictor
+    # output per masked span. Fixes the mode-averaging failure of point
+    # regression (predictor → conditional mean → chance floor). Targets are
+    # pooled clean latents, per-batch standardized (σ-VAE variance-floor
+    # analogue). Head is eval-time scaffolding; readout unchanged.
+    w_diff:         float = 0.0    # loss weight (0 = off, head not built)
+    diff_samples:   int   = 4      # sampled timesteps per span per step
+
     # ── Manifold contraction-consistency (training-time manifold fitting) ──
     # Pulls each sentence's pooled clean-encoder embedding toward its fitted
     # position on the manifold of recent embeddings (FIFO bank). Targets are

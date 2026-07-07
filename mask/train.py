@@ -41,29 +41,40 @@ def masked_span_ids(mask):
     return torch.cumsum(starts.long(), dim=1) * mask.long()
 
 
-def span_pooled_mse(pred_flat, target_flat, mask, span_ids):
+def pool_by_span(flat, mask, span_ids):
     """
-    MSE between mean-pooled prediction and target over each masked span.
-    pred_flat/target_flat: (M, P) in mask order; span_ids: (B, L) from
-    masked_span_ids. Each span contributes one pooled vector (equal weight).
+    Mean-pool (M, P) masked-position vectors by contiguous span.
+    Returns (S, P), one pooled vector per span; (0, P) if no spans.
     """
     B, L = mask.shape
     K = int(span_ids.max())
     if K == 0:
-        return pred_flat.new_tensor(0.0)
+        return flat.new_zeros((0, flat.shape[1]))
     row = torch.arange(B, device=mask.device).unsqueeze(1).expand(B, L)
     key = (row * (K + 1) + span_ids)[mask]              # (M,) flat group ids
     n_groups = B * (K + 1)
     counts = torch.bincount(key, minlength=n_groups)
     used = counts > 0
     denom = counts.clamp(min=1).unsqueeze(1).float()
+    s = torch.zeros(n_groups, flat.shape[1], device=flat.device, dtype=flat.dtype)
+    s.index_add_(0, key, flat)
+    return (s / denom)[used]
 
-    def pool(v):
-        s = torch.zeros(n_groups, v.shape[1], device=v.device, dtype=v.dtype)
-        s.index_add_(0, key, v)
-        return (s / denom)[used]
 
-    return F.mse_loss(pool(pred_flat), pool(target_flat))
+def span_pooled_mse(pred_flat, target_flat, mask, span_ids):
+    """MSE between mean-pooled prediction and target over each masked span."""
+    p = pool_by_span(pred_flat, mask, span_ids)
+    if p.shape[0] == 0:
+        return pred_flat.new_tensor(0.0)
+    return F.mse_loss(p, pool_by_span(target_flat, mask, span_ids))
+
+
+def cosine_alpha_bar(T=1000, s=0.008):
+    """Nichol–Dhariwal cosine schedule: ᾱ_t for t = 0..T-1."""
+    t = torch.arange(T + 1, dtype=torch.float32) / T
+    f = torch.cos((t + s) / (1 + s) * torch.pi / 2) ** 2
+    ab = (f / f[0])[:-1]
+    return ab.clamp(1e-5, 1.0)
 
 
 def get_lr(step, cfg):
@@ -126,6 +137,10 @@ def train(cfg: Config):
             p.requires_grad_(False)
         print(f"EMA teacher enabled (decay={cfg.ema_decay})")
 
+    alpha_bar = cosine_alpha_bar().to(device) if cfg.w_diff > 0 else None
+    if cfg.w_diff > 0:
+        print(f"Diffusion head enabled (w={cfg.w_diff}, samples={cfg.diff_samples})")
+
     # FIFO bank of pooled clean embeddings for the contraction loss.
     bank = None
     bank_ptr = 0
@@ -184,6 +199,28 @@ def train(cfg: Config):
             l_glob = F.mse_loss(pred_all.mean(dim=1), z_clean.mean(dim=1).detach())
             loss = loss + cfg.w_glob * l_glob
 
+        # Diffusion head: distributional prediction of pooled span targets.
+        # Targets per-batch standardized (σ-VAE variance-floor analogue);
+        # condition c = pooled predictor output carries the gradient.
+        l_diff = torch.tensor(0.0, device=device)
+        if model.diff_head is not None:
+            seg = masked_span_ids(mask)
+            c_pool = pool_by_span(pred, mask, seg)              # (S, P) — with grad
+            z_pool = pool_by_span(target, mask, seg)            # (S, P) — detached
+            S = z_pool.shape[0]
+            if S > 1:
+                mu = z_pool.mean(0, keepdim=True)
+                sd = z_pool.std(0, keepdim=True).clamp(min=1e-4)
+                z_std = (z_pool - mu) / sd
+                K = cfg.diff_samples
+                zr, cr = z_std.repeat(K, 1), c_pool.repeat(K, 1)
+                t = torch.randint(0, alpha_bar.shape[0], (S * K,), device=device)
+                ab = alpha_bar[t].unsqueeze(1)
+                eps = torch.randn_like(zr)
+                z_t = ab.sqrt() * zr + (1 - ab).sqrt() * eps
+                l_diff = F.mse_loss(model.diff_head(z_t, t, cr), eps)
+                loss = loss + cfg.w_diff * l_diff
+
         # Manifold contraction-consistency: pull pooled sentence embeddings
         # toward their fitted position on the manifold of recent embeddings.
         # Targets detached — no gradient through the fitting.
@@ -229,12 +266,12 @@ def train(cfg: Config):
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
                   f"reg {reg.item():.4f} | ce {ce.item():.4f} | "
                   f"span {l_span.item():.4f} | glob {l_glob.item():.4f} | "
-                  f"contract {l_contract.item():.4f} | "
+                  f"contract {l_contract.item():.4f} | diff {l_diff.item():.4f} | "
                   f"masked {int(mask.sum())} | lr {lr:.2e}")
             if cfg.use_wandb:
                 wandb.log({"loss": loss.item(), "mse": mse.item(), "reg": reg.item(),
                            "ce": ce.item(), "l_span": l_span.item(), "l_glob": l_glob.item(),
-                           "l_contract": l_contract.item(),
+                           "l_contract": l_contract.item(), "l_diff": l_diff.item(),
                            "lr": lr, "masked_tokens": int(mask.sum())}, step=step)
 
         if step % cfg.rank_every == 0:
@@ -309,6 +346,9 @@ if __name__ == "__main__":
                    help="Weight of the span-pooled latent MSE (composition term).")
     p.add_argument("--w-glob",        type=float, default=Config.w_glob,
                    help="Weight of the global (sequence-mean) latent MSE.")
+    p.add_argument("--w-diff",         type=float, default=Config.w_diff,
+                   help="Diffusion-head loss weight (0 = off; distributional span prediction).")
+    p.add_argument("--diff-samples",   type=int,   default=Config.diff_samples)
     p.add_argument("--w-contract",     type=float, default=Config.w_contract,
                    help="Manifold contraction-consistency weight (0 = off).")
     p.add_argument("--contract-sigma", type=float, default=Config.contract_sigma)
@@ -352,5 +392,6 @@ if __name__ == "__main__":
         w_span=a.w_span, w_glob=a.w_glob, seed=a.seed, latent_space=a.latent_space,
         w_contract=a.w_contract, contract_sigma=a.contract_sigma,
         contract_bank=a.contract_bank, contract_start=a.contract_start,
+        w_diff=a.w_diff, diff_samples=a.diff_samples,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))
