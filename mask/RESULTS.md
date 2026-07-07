@@ -163,7 +163,19 @@ data term preserves no semantics; adding one re-opens the target channel).
 only clustering, nothing beats raw on the mean — post-hoc or in-training,
 geometry interventions trade task families. Axis closed.
 
-## Status: evidence table complete (2026-07-06)
+## Wave 4 — beat-BERT push (launched 2026-07-06)
+
+| Run | Config | Tests | Result |
+|---|---|---|---|
+| ctrl_random_120k | best recipe (enc-CE, random .15) × 4 budget | budget-matched vs BERT-base .4825 | ⏳ |
+| contract_w1 | + manifold contraction w=1.0, σ=.15, bank 4096 | training-time manifold fitting (Austin's idea) | ⏳ |
+| contract_w01 | + contraction w=0.1 | dose insurance | ⏳ |
+
+Contraction = MSE(pool(h_clean), manfit(pool, FIFO-bank).detach()); no gradient
+through fitting; activates at step 2k. Post-hoc evidence says expect clustering
+gains at best (+.016 was the post-hoc effect, seed σ .01 — needs to beat that).
+
+## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
 whitened-target toxicity (α ablation isolates pathway), latent inertness
