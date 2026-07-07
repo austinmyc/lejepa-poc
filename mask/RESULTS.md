@@ -175,6 +175,20 @@ Contraction = MSE(pool(h_clean), manfit(pool, FIFO-bank).detach()); no gradient
 through fitting; activates at step 2k. Post-hoc evidence says expect clustering
 gains at best (+.016 was the post-hoc effect, seed σ .01 — needs to beat that).
 
+## Wave 5 — distributional prediction (diffusion head). QUEUED
+
+LatentLM/MAR mechanism mapped onto our failures: the chance floors are
+mode-averaging (point-MSE → conditional mean → no variance); pooled targets
+were variance-collapsed (their σ-VAE finding). Fix: noise-prediction head
+ε_θ(z_t, t, c) on per-batch-standardized pooled span targets, c = pooled
+predictor output (gradient path to encoder verified). Tests: was the latent
+term inert because of point regression, or is the residual truly redundant
+with CE? Beat bar: L8 ctrl seed range .422–.431 (+ noise .01).
+
+| Run | w_diff | Config | Result |
+|---|---|---|---|
+| diff_w1 | 1.0 | L8 spans, enc-space, CE anchor, no SIGReg | ⏳ |
+
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
