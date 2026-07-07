@@ -45,7 +45,7 @@ from eval_baselines import MeanPoolEncoder, BASELINES
 # ── manifold fitting (port of manfit_ours.py, vectorized) ────────────────────
 
 @torch.no_grad()
-def manfit(sample, points, sig, device="cpu", chunk=256):
+def manfit(sample, points, sig, device="cpu", chunk=256, as_numpy=True):
     """
     Contract `points` toward the manifold underlying `sample`.
 
@@ -86,7 +86,7 @@ def manfit(sample, points, sig, device="cpu", chunk=256):
         wc = cyl.float()
         cyl_mean = (wc @ S) / counts.clamp(min=1).unsqueeze(1)
         out[lo:lo + chunk] = torch.where(counts.unsqueeze(1) > 10, cyl_mean, xbar)
-    return out.cpu().numpy()
+    return out.cpu().numpy() if as_numpy else out
 
 
 def whiten_fit(cloud):

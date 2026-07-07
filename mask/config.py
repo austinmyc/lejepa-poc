@@ -119,6 +119,16 @@ class Config:
     w_span:         float = 0.0
     w_glob:         float = 0.0
 
+    # ── Manifold contraction-consistency (training-time manifold fitting) ──
+    # Pulls each sentence's pooled clean-encoder embedding toward its fitted
+    # position on the manifold of recent embeddings (FIFO bank). Targets are
+    # detached — no gradient through the fitting. Bakes in the post-hoc
+    # cluster-tightening effect while letting CE co-adapt.
+    w_contract:       float = 0.0    # loss weight (0 = off)
+    contract_sigma:   float = 0.15   # manfit σ in median-distance-normalized space
+    contract_bank:    int   = 4096   # FIFO bank size (fitting cloud)
+    contract_start:   int   = 2000   # steps before the loss activates (bank fill + CE warmup)
+
     # ── Reproducibility ────────────────────────────────────────────────────
     seed:           int   = 1337
 

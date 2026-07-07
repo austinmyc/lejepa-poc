@@ -24,6 +24,7 @@ from model  import LeJEPAText
 from sigreg import sigreg_loss
 from data   import get_dataloader, make_masked_input
 from eval_mteb import run_mteb_eval
+from eval_manifold import manfit
 
 
 @torch.no_grad()
@@ -125,6 +126,15 @@ def train(cfg: Config):
             p.requires_grad_(False)
         print(f"EMA teacher enabled (decay={cfg.ema_decay})")
 
+    # FIFO bank of pooled clean embeddings for the contraction loss.
+    bank = None
+    bank_ptr = 0
+    bank_full = False
+    if cfg.w_contract > 0:
+        bank = torch.zeros(cfg.contract_bank, cfg.d_model, device=device)
+        print(f"Manifold contraction enabled (w={cfg.w_contract}, σ={cfg.contract_sigma}, "
+              f"bank={cfg.contract_bank}, start={cfg.contract_start})")
+
     if cfg.use_wandb:
         import wandb
         from dotenv import load_dotenv
@@ -174,6 +184,30 @@ def train(cfg: Config):
             l_glob = F.mse_loss(pred_all.mean(dim=1), z_clean.mean(dim=1).detach())
             loss = loss + cfg.w_glob * l_glob
 
+        # Manifold contraction-consistency: pull pooled sentence embeddings
+        # toward their fitted position on the manifold of recent embeddings.
+        # Targets detached — no gradient through the fitting.
+        l_contract = torch.tensor(0.0, device=device)
+        if bank is not None:
+            pooled = h_clean.mean(dim=1)                        # (B, D) — with grad
+            if bank_full and step >= cfg.contract_start:
+                with torch.no_grad():
+                    k = min(256, cfg.contract_bank // 2)
+                    sub = bank[torch.randperm(cfg.contract_bank, device=device)[:2 * k]]
+                    scale = torch.cdist(sub[:k], sub[k:]).median().clamp(min=1e-6)
+                    target_c = manfit(bank / scale, pooled.detach() / scale,
+                                      cfg.contract_sigma, device=device,
+                                      as_numpy=False) * scale
+                l_contract = F.mse_loss(pooled, target_c)
+                loss = loss + cfg.w_contract * l_contract
+            with torch.no_grad():                               # bank update (FIFO)
+                n = pooled.shape[0]
+                idx = (bank_ptr + torch.arange(n, device=device)) % cfg.contract_bank
+                bank[idx] = pooled.detach()
+                bank_ptr = (bank_ptr + n) % cfg.contract_bank
+                if bank_ptr < n:
+                    bank_full = True
+
         # MLM anchor: decode back to token logits at masked positions.
         # Grounds the latent space in data (see config.mlm_beta / mlm_head).
         ce = torch.tensor(0.0, device=device)
@@ -195,10 +229,12 @@ def train(cfg: Config):
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
                   f"reg {reg.item():.4f} | ce {ce.item():.4f} | "
                   f"span {l_span.item():.4f} | glob {l_glob.item():.4f} | "
+                  f"contract {l_contract.item():.4f} | "
                   f"masked {int(mask.sum())} | lr {lr:.2e}")
             if cfg.use_wandb:
                 wandb.log({"loss": loss.item(), "mse": mse.item(), "reg": reg.item(),
                            "ce": ce.item(), "l_span": l_span.item(), "l_glob": l_glob.item(),
+                           "l_contract": l_contract.item(),
                            "lr": lr, "masked_tokens": int(mask.sum())}, step=step)
 
         if step % cfg.rank_every == 0:
@@ -273,6 +309,11 @@ if __name__ == "__main__":
                    help="Weight of the span-pooled latent MSE (composition term).")
     p.add_argument("--w-glob",        type=float, default=Config.w_glob,
                    help="Weight of the global (sequence-mean) latent MSE.")
+    p.add_argument("--w-contract",     type=float, default=Config.w_contract,
+                   help="Manifold contraction-consistency weight (0 = off).")
+    p.add_argument("--contract-sigma", type=float, default=Config.contract_sigma)
+    p.add_argument("--contract-bank",  type=int,   default=Config.contract_bank)
+    p.add_argument("--contract-start", type=int,   default=Config.contract_start)
     p.add_argument("--seed",          type=int,   default=Config.seed)
     p.add_argument("--latent-space",  type=str,   default=Config.latent_space,
                    choices=["proj", "encoder"],
@@ -309,5 +350,7 @@ if __name__ == "__main__":
         use_ema=a.ema, ema_decay=a.ema_decay,
         mlm_beta=a.mlm_beta, mse_weight=a.mse_weight, mlm_head=a.mlm_head,
         w_span=a.w_span, w_glob=a.w_glob, seed=a.seed, latent_space=a.latent_space,
+        w_contract=a.w_contract, contract_sigma=a.contract_sigma,
+        contract_bank=a.contract_bank, contract_start=a.contract_start,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))
