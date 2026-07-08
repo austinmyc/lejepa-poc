@@ -24,6 +24,12 @@ The predictor is not used at eval time.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+def _instance_norm_seq(x):
+    """data2vec-style instance norm: (B, L, D) normalized over L per channel."""
+    return F.instance_norm(x.transpose(1, 2)).transpose(1, 2)
 
 
 def _init_weights(module):
@@ -85,6 +91,18 @@ class TokenEncoder(nn.Module):
         pos  = torch.arange(L, device=x.device).unsqueeze(0)
         h    = self.drop(self.tok_emb(x) + self.pos_emb(pos))
         return self.norm(self.transformer(h))          # (B, L, D)
+
+    def forward_layers(self, x):
+        """Per-layer outputs, for data2vec-style targets. Returns a list of
+        (B, L, D), one per transformer block (final block pre-self.norm)."""
+        B, L = x.shape
+        pos = torch.arange(L, device=x.device).unsqueeze(0)
+        h = self.drop(self.tok_emb(x) + self.pos_emb(pos))
+        outs = []
+        for layer in self.transformer.layers:
+            h = layer(h)
+            outs.append(h)
+        return outs
 
 
 # ── projection ────────────────────────────────────────────────────────────────
@@ -225,6 +243,12 @@ class LeJEPAText(nn.Module):
         # Diffusion head (distributional span prediction) — built only when used.
         self.diff_head = (DiffusionHead(pred_dim)
                           if getattr(cfg, "w_diff", 0.0) > 0 else None)
+
+        # data2vec-style targets need encoder-space dims (targets are D-dim).
+        self.d2v_layers = getattr(cfg, "d2v_layers", 0)
+        if self.d2v_layers > 0:
+            assert self.latent_space == "encoder", \
+                "d2v_layers requires --latent-space encoder (targets are D-dim)"
         self.decoder = (nn.Linear(d_dec, cfg.vocab_size)
                         if getattr(cfg, "mlm_beta", 0.0) > 0 else None)
         if self.decoder is not None:
@@ -244,9 +268,19 @@ class LeJEPAText(nn.Module):
         if ema_model is not None:
             # EMA path: target comes from the frozen teacher; no gradient.
             with torch.no_grad():
-                h_clean = ema_model.encoder(x_clean)
-                z_clean = h_clean if enc_space else ema_model.proj(h_clean)
-            target = z_clean[mask]                     # already no-grad
+                if self.d2v_layers > 0:
+                    # data2vec recipe: instance-normed average of top-K layers.
+                    outs = ema_model.encoder.forward_layers(x_clean)
+                    K = min(self.d2v_layers, len(outs))
+                    tgt_full = torch.stack(
+                        [_instance_norm_seq(o) for o in outs[-K:]]).mean(0)
+                    h_clean = ema_model.encoder.norm(outs[-1])
+                    z_clean = h_clean                  # enc_space enforced
+                    target = tgt_full[mask]
+                else:
+                    h_clean = ema_model.encoder(x_clean)
+                    z_clean = h_clean if enc_space else ema_model.proj(h_clean)
+                    target = z_clean[mask]             # already no-grad
         else:
             # No EMA: target is the student's own clean pass (stop-grad for MSE).
             h_clean = self.encoder(x_clean)

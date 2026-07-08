@@ -87,6 +87,17 @@ class Config:
     use_ema:        bool  = False
     ema_decay:      float = 0.999  # τ: ema = τ*ema + (1-τ)*student each step
 
+    # ── data2vec-style targets (the from-scratch counterexample test) ──────
+    # K > 0: latent targets = instance-normalized average of the EMA teacher's
+    # top-K layer outputs at masked positions (per-position, never pooled).
+    # Implies an EMA teacher (auto-enabled) and latent_space="encoder" (dims).
+    # Layer-averaging pulls targets toward the input-indexed embedding layer —
+    # data2vec's implicit anchor. 0 = off.
+    d2v_layers:      int   = 0
+    # > 0: anneal EMA decay linearly from ema_decay to this over max_steps
+    # (data2vec schedule, e.g. 0.999 → 0.9999).
+    ema_decay_final: float = 0.0
+
     # ── MLM anchor (data-grounded auxiliary loss) ──────────────────────────
     # β > 0 adds a token-decoder head on the predictor output at masked
     # positions: loss += β * CE(decode(pred_M), tokens_M). This anchors the

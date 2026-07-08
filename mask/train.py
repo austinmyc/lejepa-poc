@@ -131,11 +131,13 @@ def train(cfg: Config):
     print(f"Parameters: {model.count_params():,}")
 
     ema_model = None
-    if cfg.use_ema:
+    if cfg.use_ema or cfg.d2v_layers > 0:
         ema_model = copy.deepcopy(model).to(device)
         for p in ema_model.parameters():
             p.requires_grad_(False)
-        print(f"EMA teacher enabled (decay={cfg.ema_decay})")
+        sched = f"→{cfg.ema_decay_final}" if cfg.ema_decay_final > 0 else ""
+        d2v = f", d2v top-{cfg.d2v_layers} layer-avg targets" if cfg.d2v_layers > 0 else ""
+        print(f"EMA teacher enabled (decay={cfg.ema_decay}{sched}{d2v})")
 
     alpha_bar = cosine_alpha_bar().to(device) if cfg.w_diff > 0 else None
     if cfg.w_diff > 0:
@@ -260,7 +262,10 @@ def train(cfg: Config):
         opt.step()
 
         if ema_model is not None:
-            update_ema(ema_model, model, cfg.ema_decay)
+            decay = cfg.ema_decay
+            if cfg.ema_decay_final > 0:                # data2vec anneal
+                decay += (cfg.ema_decay_final - cfg.ema_decay) * step / cfg.max_steps
+            update_ema(ema_model, model, decay)
 
         if step % cfg.log_every == 0:
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
@@ -363,6 +368,10 @@ if __name__ == "__main__":
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
     p.add_argument("--ema",         action="store_true", help="Enable EMA teacher.")
     p.add_argument("--ema-decay",   type=float, default=Config.ema_decay)
+    p.add_argument("--ema-decay-final", type=float, default=Config.ema_decay_final,
+                   help="Anneal EMA decay linearly to this value (data2vec schedule).")
+    p.add_argument("--d2v-layers",  type=int,   default=Config.d2v_layers,
+                   help="K>0: data2vec targets — instance-normed avg of teacher's top-K layers.")
     p.add_argument("--mlm-beta",    type=float, default=Config.mlm_beta,
                    help="Weight of the MLM anchor CE loss (0 = pure JEPA, no decoder head).")
     p.add_argument("--mse-weight",  type=float, default=Config.mse_weight,
@@ -387,7 +396,8 @@ if __name__ == "__main__":
         normalize_target=not a.no_normalize_target,
         mask_ratio=a.mask_ratio, mask_strategy=a.mask_strategy, span_len=a.span_len,
         save_every=a.save_every,
-        use_ema=a.ema, ema_decay=a.ema_decay,
+        use_ema=a.ema, ema_decay=a.ema_decay, ema_decay_final=a.ema_decay_final,
+        d2v_layers=a.d2v_layers,
         mlm_beta=a.mlm_beta, mse_weight=a.mse_weight, mlm_head=a.mlm_head,
         w_span=a.w_span, w_glob=a.w_glob, seed=a.seed, latent_space=a.latent_space,
         w_contract=a.w_contract, contract_sigma=a.contract_sigma,
