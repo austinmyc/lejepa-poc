@@ -227,6 +227,23 @@ catches up by 20–30k — if anything, the auxiliary term slightly *slows* earl
 convergence. Efficiency axis closed; anatomy now covers accuracy, geometry,
 readout-granularity, and convergence speed.
 
+## Wave 6 — data2vec-lite: the from-scratch counterexample test. QUEUED
+
+data2vec is the one published from-scratch text latent-prediction success — and
+its recipe smuggles in an anchor: layer-averaged targets sit near the
+input-indexed embedding layer, instance-norm pins scale (what killed our naive
+EMA), per-position targets avoid the pooled floor, annealed decay stabilizes.
+Arm: PURE latent (NO token CE anywhere): --d2v-layers 8, --latent-space encoder,
+--ema-decay 0.999 --ema-decay-final 0.9999, mse only. Peer comparison =
+pure-JEPA ceiling .164 (both anchor-free); ctrl .43-.45 = upper reference.
+If it works → ablate the recipe apart (layer-avg vs IN vs anneal) = "decomposing
+data2vec's implicit anchor" positive headline. If it fails at our scale/eval →
+their gains scoped to fine-tuned GLUE + RoBERTa compute; thesis extends.
+
+| Run | Config | Result |
+|---|---|---|
+| d2v_pure | d2v top-8, no CE, 30k | ⏳ |
+
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
