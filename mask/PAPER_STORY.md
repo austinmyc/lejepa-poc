@@ -27,7 +27,7 @@ no-free-geometric-lunch table.
    convergence curves — no escape hatch.
 5. Literature reconciliation: published gains live exactly where the
    mechanism predicts (pretrained init, cross-modal views, small-data FT).
-6. Artifacts: recipe (.4485 @ 30k, ~BERT-base @ 1/4 budget, seed sigma .01);
+6. Artifacts: reference point (.4485 @ 30k ~= 93% of BERT-base frozen score at ~0.4% compute; seed sigma .01 — frames frozen-eval saturation, not a recipe claim);
    mean-pool bottleneck; geometry no-free-lunch.
 
 ## Section -> evidence map
