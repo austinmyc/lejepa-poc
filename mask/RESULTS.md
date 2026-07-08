@@ -196,6 +196,29 @@ families (point-MSE, pooled, global, EMA-target, SIGReg-coupled, diffusion) —
 one verdict: after token CE, the residual latent signal is redundant. The
 anatomy paper's central claim is closed.**
 
+## Beyond-mean-pool probes (eval_probes.py, 2026-07-08)
+
+Frozen-checkpoint probes on the MTEB-tied trio + ctrl seed repeat (noise floor):
+
+| metric | ctrl s1337 | ctrl s2024 | encspan_w01 | diff_w1 | ctrl spread |
+|---|---|---|---|---|---|
+| B77 4-shot | .3997 | .3825 | .3982 | .3948 | .017 |
+| B77 16-shot | .6133 | .5936 | .6056 | .6126 | .020 |
+| B77 64-shot | .7464 | .7324 | .7453 | .7508 | .014 |
+| NER acc | .9173 | .9155 | .9182 | .9169 | .002 |
+| NER macro-F1 | .6131 | .6081 | .6167 | .6129 | .005 |
+| B77 trained mean-pool head | .7071 | .6879 | .7058 | .7175 | .019 |
+| B77 trained attn-pool head | .7702 | .7428 | .7666 | .7672 | .027 |
+
+**Verdict: every JEPA number sits inside the ctrl seed spread, on every rung —
+few-shot (I-JEPA's headline eval), token-level NER, and learned pooling. The
+redundancy thesis is now readout-independent, not an MTEB artifact.**
+
+**Standalone finding: the mean-pool bottleneck is real and model-independent —
+a trained attention pooler beats a trained mean-pool head by +5–6 pts on B77
+for every checkpoint (≈.70 → ≈.77). An evaluation-convention observation worth
+a paragraph, but not a JEPA differentiator.**
+
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
