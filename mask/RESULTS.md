@@ -168,6 +168,7 @@ geometry interventions trade task families. Axis closed.
 | Run | Config | Tests | Result |
 |---|---|---|---|
 | ctrl_random_120k | best recipe (enc-CE, random .15) × 4 budget | budget-matched vs BERT-base .4825 | ⏳ |
+| encspan_w01_120k | JEPA twin ×4 budget | DONE: **.4174** (STS .4707, SICK .5169, B77 .5664, 20NG .1155; 30k was .4307) — 4× tokens made the frozen mean-pool score slightly WORSE overall (B77 +.056, 20NG −.050). Interpretation BLOCKED on ctrl_random_120k: JEPA-at-scale degradation vs readout saturation indistinguishable without the baseline. | |
 | contract_w1 | + manifold contraction w=1.0, σ=.15, bank 4096 | training-time manifold fitting (Austin's idea) | ⏳ |
 | contract_w01 | + contraction w=0.1 | dose insurance | ⏳ |
 
