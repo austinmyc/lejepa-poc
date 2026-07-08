@@ -1,6 +1,31 @@
-# Paper Story — "The Anatomy of Latent Prediction for Text"
+# Paper Story — JEPA-first framing
+# "When Does Latent Prediction Have Signal in Language?"
 
 (Framing doc; numbers live in RESULTS.md, plan in EXPERIMENT_PLAN.md.)
+
+## JEPA-CENTRIC ARC (2026-07-08 reframe — Austin: keep the story about JEPA)
+Central question: under what conditions does latent prediction carry learning
+signal in language? Every section is a JEPA component:
+- VIEWS: masked-vs-clean same-text views lack information asymmetry; no view
+  dial (ratio/strategy/span-len) creates it. Condition 1: JEPA needs a VIEW GAP
+  (cf. LLM-JEPA's text<->code). Masking alone doesn't make one in text.
+- TARGETS: hierarchy measured — random -> floor 2/P; SIGReg-whitened -> floor
+  1/L (what stabilizes can sterilize); CE-grounded -> learnable but redundant.
+- COLLAPSE MECHANISMS (the LeJEPA question in text): EMA fails (rank collapse,
+  scale explosion); SIGReg prevents collapse via target-poisoning whitening;
+  stop-grad+predictor+anchor stable. Vision hierarchy INVERTS in text.
+- PREDICTOR: mean-collapse under point regression; distributional (diffusion)
+  head fixes the loss pathology, still transfers nothing -> failure is
+  informational, not architectural.
+- THESIS — THE ABSTRACTION GAP: JEPA pays when representations are far more
+  abstract than inputs (pixels->semantics). Tokens ARE abstractions; text has
+  no gap from scratch. Predicts where literature gains live: pretrained
+  backbones restore the abstraction gap; cross-modal views restore the view
+  gap; small-data adaptation changes signal economics.
+- PRESCRIPTIVE: two conditions (view gap + abstraction gap) + chance-floor
+  diagnostics to test any latent objective for signal before burning compute.
+BERT-parity = ONE setup sentence (competence certificate only, never a
+contribution). Mean-pool bottleneck + geometry no-free-lunch -> appendix.
 
 ## Abstract-shaped pitch
 
