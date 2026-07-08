@@ -185,9 +185,16 @@ predictor output (gradient path to encoder verified). Tests: was the latent
 term inert because of point regression, or is the residual truly redundant
 with CE? Beat bar: L8 ctrl seed range .422–.431 (+ noise .01).
 
-| Run | w_diff | Config | Result |
-|---|---|---|---|
-| diff_w1 | 1.0 | L8 spans, enc-space, CE anchor, no SIGReg | ⏳ |
+| Run | w_diff | STS | SICK | B77 | 20NG | Mean | CE | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| diff_w1 | 1.0 | .4740 | .5346 | .5129 | .1802 | .4254 | 6.12 | **NEUTRAL** — mid ctrl seed range |
+
+l_diff: 1.0 → ~0.20 by step 1k, then flat 29k steps — head learns the easy
+(≈unconditional) denoising instantly, extracts nothing more from the condition.
+**Wave-5 conclusion: mode-averaging eliminated as the explanation. Six loss
+families (point-MSE, pooled, global, EMA-target, SIGReg-coupled, diffusion) —
+one verdict: after token CE, the residual latent signal is redundant. The
+anatomy paper's central claim is closed.**
 
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
