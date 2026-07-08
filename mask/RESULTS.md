@@ -219,6 +219,14 @@ a trained attention pooler beats a trained mean-pool head by +5–6 pts on B77
 for every checkpoint (≈.70 → ≈.77). An evaluation-convention observation worth
 a paragraph, but not a JEPA differentiator.**
 
+**Probe curves at 10k/20k/30k (2026-07-08): the "same quality, fewer steps"
+framing is dead too.** ctrl/encspan curves are glued together at every step and
+every rung (Δ within ±.01, alternating sign). diff_w1 is consistently the
+LOWEST at 10k across all seven metrics (e.g. pool_attn .574 vs ctrl .606) and
+catches up by 20–30k — if anything, the auxiliary term slightly *slows* early
+convergence. Efficiency axis closed; anatomy now covers accuracy, geometry,
+readout-granularity, and convergence speed.
+
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
