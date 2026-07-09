@@ -245,6 +245,27 @@ their gains scoped to fine-tuned GLUE + RoBERTa compute; thesis extends.
 |---|---|---|
 | d2v_pure | d2v top-8, no CE, 30k | ⏳ |
 
+## data2vec-lite (d2v_pure, no CE) — 2026-07-09. THE COUNTEREXAMPLE, DISSECTED
+
+| Run | Config | STS | SICK | B77 | 20NG | Mean | mse | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| d2v_pure | EMA, top-K instance-normed layer-avg targets, NO CE | .2044 | .4239 | .2027 | .0670 | **.2245** | .081 | see below |
+
+**Escapes the chance floor — the ONLY latent-only objective that does.** mse=.081
+on instance-normed (unit-var) targets ⇒ predictor explains most target variance
+(R²≈.9), vs R²≈0 for every prior latent arm. Confirms the thesis mechanistically:
+layer-averaging + instance-norm makes the target LEARNABLE where whitening/raw
+did not. And .2245 >> pure-JEPA .164 (no-CE) ⇒ the implicit anchor (layer-avg
+toward the input-indexed embedding layer) supplies REAL grounding.
+
+BUT .2245 << CE-anchored .4485: the implicit anchor is a WEAKER anchor than
+explicit CE for frozen-embedding quality. Consistent with data2vec's own results
+(text = its weakest modality; gains were fine-tuning, not frozen embeddings).
+Quantifies the whole story: no anchor .16 → implicit (d2v) .22 → explicit CE .45.
+
+Follow-up arm (JEPA, worth running): d2v targets + CE anchor — is the implicit
+anchor ADDITIVE with or REDUNDANT to explicit CE?
+
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
