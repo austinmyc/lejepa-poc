@@ -266,6 +266,30 @@ Quantifies the whole story: no anchor .16 → implicit (d2v) .22 → explicit CE
 Follow-up arm (JEPA, worth running): d2v targets + CE anchor — is the implicit
 anchor ADDITIVE with or REDUNDANT to explicit CE?
 
+## d2v_ce + ctrl_random_120k — 2026-07-09/10. THE LOOP CLOSES
+
+| Run | Config | STS | SICK | B77 | 20NG | Mean | ce | mse | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| d2v_ce | d2v layer-avg targets + CE anchor, 30k | .5192 | .5482 | .5645 | .1566 | **.4471** | 3.05 | .334 | = CE-alone ctrl .4485 (Δ.0014, in noise) → **learnable latent target REDUNDANT with CE** |
+| ctrl_random_120k | enc-CE only, 120k (4× budget) | .4327 | .5484 | .5855 | .0950 | **.4154** | 2.40 | — | 4× tokens made frozen mean-pool WORSE (30k was .4485); ≈ JEPA twin .4174 |
+
+**These close last week's plan (A/B/C):**
+- **C — does JEPA beat anchor alone?** NO. d2v_ce (best learnable latent target
+  + CE) = .4471 ≈ CE-alone .4485. The one latent objective that escapes the floor
+  is exactly redundant with CE once CE is present.
+- **B — swap anti-collapse (EMA/data2vec):** done. d2v_pure escapes floor (.2245)
+  but implicit anchor < CE; d2v_ce shows it adds nothing on top of CE.
+- **A — encoder-space target fix:** encspan neutral (done wave 3).
+- **Scale:** at 120k, JEPA twin (.4174) ≈ ctrl (.4154), BOTH below their 30k
+  selves → redundancy is scale-robust AND frozen mean-pool quality peaks early
+  then degrades with more MLM training (an eval-saturation finding, model-agnostic).
+
+**Full anchor chain, final:** no anchor .16 → implicit (d2v layer-avg) .22 →
+explicit CE .45; adding the implicit anchor to explicit CE → .45 (no gain).
+Latent prediction in from-scratch text: inert on top of a token anchor across
+6 loss families, 2 target spaces, 3 collapse mechanisms, 4 readout families,
+and 4× scale. Central claim closed and scale-robust.
+
 ## Status: evidence table complete for the anatomy paper (2026-07-06)
 
 Paper = anatomy/reference: two chance floors (2/P per-token; 1/L pooled),
