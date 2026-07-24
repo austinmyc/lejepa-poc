@@ -3,6 +3,81 @@
 > All completed-run numbers live in [RESULTS.md](RESULTS.md) — one row per run,
 > updated when each run's MTEB lands.
 
+---
+
+# Part II — The condition map (2026-07 reframe)
+
+The thesis (PAPER_STORY.md) is stated as **two conditions** for latent prediction
+to carry signal in language: a **view gap** (real information asymmetry between the
+two views — cf. LLM-JEPA's text↔code) and an **abstraction gap** (representations
+more abstract than inputs — restored by a pretrained backbone). That defines a 2×2.
+The ~40 runs of Part I exhaustively characterize the *interior* of **one corner**
+— same-text masked views, from scratch — but never move along either axis. So the
+paper currently **asserts** the other three cells (cites LLM-JEPA / DLLM-JEPA) but
+never turns the knob in our own harness. Filling the map converts the reconciliation
+from citation into controlled demonstration and is the strongest version of the paper.
+
+|                              | **abstraction gap: NO** (from scratch)        | **abstraction gap: YES** (pretrained backbone) |
+|------------------------------|-----------------------------------------------|------------------------------------------------|
+| **view gap: NO** (same-text masked) | ✅ **DONE** — the dead cell (Part I, ~40 runs) | ⬜ cell 2 — same-text JEPA on a pretrained encoder (isolates abstraction gap) |
+| **view gap: YES** (paired texts)    | ⬜ **cell 1 — this scaffold** (isolates view gap) | ⬜ cell 3 = LLM-JEPA regime (both on → the cure); CoT-as-action rides here |
+
+**Why cell 1 is the next run (not cell 3):**
+- It **discriminates** the two competing explanations. The thesis ("tokens ARE
+  abstractions; text has no gap from scratch") predicts a view gap *alone* may NOT
+  be enough — you also need the abstraction gap. LLM-JEPA has *both*, so it cannot
+  tell you which condition did the work. Cell 1 can.
+- **Both outcomes publish.** Rescued → view gap is sufficient (constructive story).
+  Still at the floor → even a real cross-modal view gap can't save from-scratch;
+  you *also* need pretrained abstraction — a sharper negative than "masking fails".
+- **Most novel cell in the literature** — LLM-JEPA and DLLM-JEPA both start from a
+  pretrained backbone; nobody has run from-scratch JEPA on genuine pairs.
+- **Reuses the Part I stack** — no HF/LoRA module needed yet (that is cells 2–3).
+
+## Cell 1 — cross-view paired JEPA, from scratch  ⏳ SCAFFOLDED (train_paired.py)
+
+Architecture (view A and view B are DIFFERENT texts forming a semantic pair):
+
+```
+x_a → Encoder → Proj → Predictor → mean-pool → pred ─┐
+                                                     ├─ MSE (pred, target)   [cross-view]
+x_b → Encoder → Proj → mean-pool → target (stop-grad)┘
+x_b → Proj(per-token) ─ SIGReg                        [target-view geometry]
+x_a(masked) → Encoder → CE decode   (optional --mlm-beta)   [anchor]
+```
+
+Data: `--pair-source code` (docstring↔code, cross-modal — LLM-JEPA's own regime)
+and `--pair-source simplify` (complex↔simplified, monomodal surface-form gap).
+Eval: unchanged — frozen encoder mean-pool → MTEB slice, vs the Part I baselines
+(`mlm_encoder_ctrl` 0.4485; BERT-base 0.483) and the RQ1 chance floor (0.164).
+
+**Arms** (30k screening tier; promote survivors to 120k×3-seed like Part I):
+
+| Arm | Command flags | Tests |
+|---|---|---|
+| pure cross-view | `--mlm-beta 0` | does a view gap **alone** escape the 2/P floor? (the discriminating run) |
+| anchored cross-view | `--mlm-beta 1 --mlm-head encoder` | LLM-JEPA in miniature — does the cross-view term beat CE-only at parity? |
+| **shuffled control** | `… --shuffle-pairs` | chance-floor analogue: permute view B in-batch. If the readout still improves, the A↔B *pairing* is not what carried the signal (guards against "it's just extra capacity / more tokens"). |
+| MLM-only baseline | `train.py --mlm-head encoder --mse-weight 0 --mlm-beta 1` | matched-compute CE-only reference (already have it). |
+
+**Reads.** anchored > MLM-only **and** shuffled ≈ MLM-only → the view gap is
+load-bearing and faithful = the constructive contribution. pure cross-view ≫ 0.164
+→ a view gap alone escapes the floor (view gap sufficient). pure cross-view ≈ 0.164
+→ view gap necessary but insufficient without abstraction → motivates cells 2–3.
+Any "shuffled ≈ real" result kills a naive positive claim early — same discipline
+as Part I's random-target floor.
+
+**Then:** cell 2 (same-text masked JEPA on a pretrained HF encoder + LoRA — cheap,
+no paired corpus, isolates the abstraction gap), then cell 3 (both on) with
+**CoT-as-action** as the novelty spike (condition the predictor on pooled CoT via
+the AdaLN path already in jepa_diffusion_idea.md; controls = shuffled-CoT /
+random-vector action, mirroring `--shuffle-pairs`). Cells 2–3 need a new `ft/`
+module (HF backbone + LoRA + generation-accuracy eval) — scaffold after cell 1 reads.
+
+---
+
+# Part I — Anchored from-scratch study  (✅ closed — the dead cell)
+
 **Thesis for the paper:** JEPA-style latent prediction (predictor + projection +
 SIGReg, no EMA teacher) improves text encoder pretraining over pure MLM — from
 scratch — with the predictor earning its contribution where token-space

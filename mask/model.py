@@ -32,6 +32,16 @@ def _instance_norm_seq(x):
     return F.instance_norm(x.transpose(1, 2)).transpose(1, 2)
 
 
+def _masked_mean(x, pad):
+    """Mean-pool (B, L, D) over the sequence, ignoring PAD positions.
+    pad: (B, L) bool, True at PAD. None → plain mean (paired views are ragged, so
+    the paired path always passes a mask; single-text packing never pads)."""
+    if pad is None:
+        return x.mean(1)
+    keep = (~pad).unsqueeze(-1).to(x.dtype)             # (B, L, 1)
+    return (x * keep).sum(1) / keep.sum(1).clamp(min=1.0)
+
+
 def _init_weights(module):
     if isinstance(module, nn.Linear):
         nn.init.trunc_normal_(module.weight, std=0.02)
@@ -86,11 +96,13 @@ class TokenEncoder(nn.Module):
         self.norm = nn.LayerNorm(cfg.d_model)
         self.apply(_init_weights)
 
-    def forward(self, x):                              # x: (B, L)
+    def forward(self, x, key_padding_mask=None):       # x: (B, L)
         B, L = x.shape
         pos  = torch.arange(L, device=x.device).unsqueeze(0)
         h    = self.drop(self.tok_emb(x) + self.pos_emb(pos))
-        return self.norm(self.transformer(h))          # (B, L, D)
+        # key_padding_mask: (B, L) bool, True at PAD positions (paired path).
+        # None on the single-text path (sequences are packed, never padded).
+        return self.norm(self.transformer(h, src_key_padding_mask=key_padding_mask))
 
     def forward_layers(self, x):
         """Per-layer outputs, for data2vec-style targets. Returns a list of
@@ -291,6 +303,51 @@ class LeJEPAText(nn.Module):
             target = z_clean[mask].detach()
 
         return pred, target, z_clean, h_clean, h_masked
+
+    def forward_paired(self, x_a, x_b, pad_a=None, pad_b=None):
+        """
+        Cross-view JEPA (EXPERIMENT_PLAN cell 1: view gap YES, abstraction NO).
+
+        View A and view B are DIFFERENT texts forming a genuine semantic pair
+        (docstring↔code, doc↔summary) — so the information asymmetry the predictor
+        exploits is real, unlike same-text masking where clean and masked views
+        carry the same content. Predict the pooled projection of view B from the
+        pooled predictor output over view A (LLM-JEPA regime, from scratch):
+
+            z_a  = proj(enc(x_a))                       # (B, La, P)
+            pred = pool( predictor(z_a) )               # (B, P)   ← context
+            z_b  = proj(enc(x_b))                       # (B, Lb, P)  ← SIGReg here
+            target = pool(z_b).detach()                 # (B, P)   ← stop-grad
+
+        SIGReg lives on the TARGET view's per-token projection (z_b), mirroring
+        the single-text path where it regularizes z_clean (the MSE target space).
+        α (sigreg_grad_scale) throttles its reach into the encoder exactly as in
+        forward(). Direction is A→B; symmetrize by calling again with views
+        swapped if a bidirectional anchor is wanted.
+
+        pad_a/pad_b: (B, L) bool, True at PAD (ignored by attention + pooling).
+        Returns:
+            pred    — (B, P)     pooled predictor output over view A (with grad)
+            target  — (B, P)     pooled z_b, DETACHED — the MSE target
+            z_a     — (B, La, P) view-A projection (geometry logging)
+            z_b     — (B, Lb, P) view-B projection — SIGReg operand (with grad)
+        """
+        enc_space = self.latent_space == "encoder"
+
+        # Context view A → predictor → pooled prediction.
+        h_a = self.encoder(x_a, key_padding_mask=pad_a)
+        z_a = h_a if enc_space else self.proj(h_a)
+        pred = _masked_mean(self.predictor(z_a), pad_a)     # (B, P)
+
+        # Target view B → projection (SIGReg gets grad via α; MSE target detached).
+        h_b = self.encoder(x_b, key_padding_mask=pad_b)
+        if enc_space:
+            z_b = grad_scale(h_b, self.sigreg_grad_scale)
+        else:
+            z_b = self.proj(grad_scale(h_b, self.sigreg_grad_scale))
+        target = _masked_mean(z_b, pad_b).detach()          # (B, P)
+
+        return pred, target, z_a, z_b
 
     def count_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)

@@ -71,6 +71,23 @@ class Config:
     data_cache:  str  = "./data_cache"
     corpus:      str  = "Skylion007/openwebtext"
 
+    # ── Paired-view JEPA (cell 1: view gap YES, abstraction gap NO) ─────────
+    # Cross-view path (train_paired.py): predict pooled proj(enc(view_B)) from
+    # view_A, where A/B are a genuine semantic pair (docstring↔code, doc↔summary).
+    # pair_source names a PAIR_PRESETS entry in data.py; pair_repo/col_a/col_b/
+    # split override it (empty string = use the preset's value). The repo must be
+    # a namespaced parquet HF repo (script-based datasets don't stream here).
+    pair_source: str = "code"        # "code" | "simplify" | custom (needs pair_repo)
+    pair_repo:   str = ""            # override HF repo; "" = use preset
+    pair_col_a:  str = ""            # override view-A column; "" = use preset
+    pair_col_b:  str = ""            # override view-B column; "" = use preset
+    pair_split:  str = ""            # override split; "" = use preset
+    # Control arm: permute view B within the batch so pairs are broken. The
+    # chance-floor analogue of the random-target control — if the objective still
+    # helps the readout under shuffling, the A↔B pairing is not what carries the
+    # signal. 0 = real pairs.
+    shuffle_pairs: bool = False
+
     # ── Logging & checkpoints ──────────────────────────────────────────────
     log_every:      int = 50
     rank_every:     int = 200
