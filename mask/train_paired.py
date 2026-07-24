@@ -151,12 +151,14 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Cross-view paired-JEPA (cell 1).")
     p.add_argument("--steps",       type=int,   default=Config.max_steps)
     p.add_argument("--pair-source", type=str,   default=Config.pair_source,
-                   help="PAIR_PRESETS key: 'code' | 'simplify' (or set --pair-repo).")
+                   help="PAIR_PRESETS key: 'code' | 'summary' | 'cnndm' | 'simplify'.")
     p.add_argument("--pair-repo",   type=str,   default=Config.pair_repo,
                    help="Override HF parquet repo (namespaced). '' = use preset.")
     p.add_argument("--pair-col-a",  type=str,   default=Config.pair_col_a)
     p.add_argument("--pair-col-b",  type=str,   default=Config.pair_col_b)
     p.add_argument("--pair-split",  type=str,   default=Config.pair_split)
+    p.add_argument("--pair-config", type=str,   default=Config.pair_config,
+                   help="Dataset config name (e.g. cnndm needs '3.0.0'). '' = use preset.")
     p.add_argument("--shuffle-pairs", action="store_true",
                    help="Control: permute view B within batch (break A↔B pairing).")
     p.add_argument("--lr",          type=float, default=Config.lr)
@@ -189,7 +191,7 @@ if __name__ == "__main__":
         max_steps=a.steps,
         pair_source=a.pair_source, pair_repo=a.pair_repo,
         pair_col_a=a.pair_col_a, pair_col_b=a.pair_col_b, pair_split=a.pair_split,
-        shuffle_pairs=a.shuffle_pairs,
+        pair_config=a.pair_config, shuffle_pairs=a.shuffle_pairs,
         lr=a.lr, warmup_steps=a.warmup_steps,
         lam=a.lam, sigreg_grad_scale=a.sigreg_grad_scale,
         d_model=a.d_model, d_proj=a.d_proj,

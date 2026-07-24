@@ -46,8 +46,12 @@ x_b → Proj(per-token) ─ SIGReg                        [target-view geometry]
 x_a(masked) → Encoder → CE decode   (optional --mlm-beta)   [anchor]
 ```
 
-Data: `--pair-source code` (docstring↔code, cross-modal — LLM-JEPA's own regime)
-and `--pair-source simplify` (complex↔simplified, monomodal surface-form gap).
+Data — run **two corpora for robustness** so a positive result must replicate
+across pairing types, not ride on one:
+- `--pair-source code` — docstring↔code (CROSS-MODAL view gap; LLM-JEPA's regime).
+- `--pair-source summary` — document↔summary (XSum; abstractive, MONOMODAL, strong
+  abstraction asymmetry). Alternates: `cnndm` (CNN/DM), `simplify` (altlex).
+`run_paired.sh` sweeps `$PAIRS` (default "code summary") as sequential 3-arm waves.
 Eval: unchanged — frozen encoder mean-pool → MTEB slice, vs the Part I baselines
 (`mlm_encoder_ctrl` 0.4485; BERT-base 0.483) and the RQ1 chance floor (0.164).
 

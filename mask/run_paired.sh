@@ -12,9 +12,14 @@
 # Reads: pure ≫ 0.164 → view gap sufficient. pure ≈ 0.164 → need abstraction gap.
 #        anchored > ctrl AND shuffled ≈ ctrl → the pairing is load-bearing & faithful.
 #
-# Usage:  bash mask/run_paired.sh
-#         PAIR=simplify bash mask/run_paired.sh          # monomodal view gap
+# Usage:  bash mask/run_paired.sh                        # both code + summary
+#         PAIRS="code summary cnndm" bash mask/run_paired.sh
 #         GPUS="0 1 2"  bash mask/run_paired.sh          # one arm per GPU (default)
+#
+# Robustness: runs the full 3-arm sweep for EACH pair source in $PAIRS, so a
+# positive result must replicate across a cross-modal (code) and a doc↔summary
+# corpus rather than being an artifact of one pairing type. Pair sources run as
+# sequential waves (each wave = 3 arms in parallel across $GPUS).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,7 +32,7 @@ if [ -f .env ]; then set -a; source .env 2>/dev/null || true; set +a; fi
 mkdir -p logs
 
 # ───────────────── shared config (matches run_span.sh scale) ────────────────
-PAIR="${PAIR:-code}"                 # code (docstring↔code) | simplify | custom
+PAIRS="${PAIRS:-code summary}"       # sweep these pair sources (space-separated)
 STEPS="${STEPS:-30000}"
 WARMUP=1000
 D_MODEL=768; D_PROJ=768; ENC_LAYERS=12; N_HEADS=12
@@ -40,7 +45,7 @@ TS="$(date +%Y%m%d_%H%M%S)"
 # ─────────────────────────────────────────────────────────────────────────────
 
 run() {
-    local GPU_ID="$1"; local NAME="$2"; shift 2
+    local GPU_ID="$1"; local PAIR="$2"; local NAME="$3"; shift 3
     echo "════════════════════════════════════════════════════════════"
     echo "  Starting: $NAME  (GPU=$GPU_ID)  pair=$PAIR"
     echo "  Args: $*"
@@ -56,26 +61,30 @@ run() {
       "$@"
 }
 
-# One arm per GPU, in parallel (drop GPUs / add `&` chains as your box allows).
-run "${GPU[0]}" "paired_${TS}_${PAIR}_pure" \
-    --mlm-beta 0.0 \
-    &> "logs/paired_${TS}_${PAIR}_pure.log" &
-P0=$!
+# One wave per pair source: 3 arms in parallel across $GPUS, then wait.
+run_wave() {
+    local PAIR="$1"
+    run "${GPU[0]}"            "$PAIR" "paired_${TS}_${PAIR}_pure" \
+        --mlm-beta 0.0 \
+        &> "logs/paired_${TS}_${PAIR}_pure.log" & local P0=$!
+    run "${GPU[1]:-${GPU[0]}}" "$PAIR" "paired_${TS}_${PAIR}_anchored" \
+        --mlm-beta 1.0 --mlm-head encoder \
+        &> "logs/paired_${TS}_${PAIR}_anchored.log" & local P1=$!
+    run "${GPU[2]:-${GPU[0]}}" "$PAIR" "paired_${TS}_${PAIR}_shuffled" \
+        --mlm-beta 1.0 --mlm-head encoder --shuffle-pairs \
+        &> "logs/paired_${TS}_${PAIR}_shuffled.log" & local P2=$!
+    echo "[$PAIR] pure PID $P0 | anchored PID $P1 | shuffled PID $P2"
+    wait $P0 && echo "==> [$PAIR] pure done"     || echo "==> [$PAIR] pure FAILED"
+    wait $P1 && echo "==> [$PAIR] anchored done" || echo "==> [$PAIR] anchored FAILED"
+    wait $P2 && echo "==> [$PAIR] shuffled done" || echo "==> [$PAIR] shuffled FAILED"
+}
 
-run "${GPU[1]:-${GPU[0]}}" "paired_${TS}_${PAIR}_anchored" \
-    --mlm-beta 1.0 --mlm-head encoder \
-    &> "logs/paired_${TS}_${PAIR}_anchored.log" &
-P1=$!
-
-run "${GPU[2]:-${GPU[0]}}" "paired_${TS}_${PAIR}_shuffled" \
-    --mlm-beta 1.0 --mlm-head encoder --shuffle-pairs \
-    &> "logs/paired_${TS}_${PAIR}_shuffled.log" &
-P2=$!
-
-echo "pure PID $P0 | anchored PID $P1 | shuffled PID $P2   (pair=$PAIR)"
-wait $P0 && echo "==> pure done"     || echo "==> pure FAILED"
-wait $P1 && echo "==> anchored done" || echo "==> anchored FAILED"
-wait $P2 && echo "==> shuffled done" || echo "==> shuffled FAILED"
+for PAIR in $PAIRS; do
+    echo "########## PAIR SOURCE: $PAIR ##########"
+    run_wave "$PAIR"
+done
 
 echo ""
 echo "Compare MTEB means in W&B (austinmyc/lejepa) vs ctrl 0.4485 / floor 0.164."
+echo "Robustness read: the pure>floor / anchored>ctrl / shuffled≈ctrl pattern"
+echo "should hold on BOTH code and summary to claim the view gap generalises."

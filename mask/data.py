@@ -95,20 +95,22 @@ class StreamingCorpusDataset(IterableDataset):
 
 # ── paired-view corpus (cell 1: view gap YES, abstraction gap NO) ──────────────
 
-# Presets map a friendly name → (namespaced parquet HF repo, col_a, col_b, split).
-# Constraint (same as StreamingCorpusDataset): the repo must stream as parquet
-# without a loading script — script-based datasets (bare "code_search_net",
-# "cnn_dailymail") won't stream here, so we point at parquet mirrors. Override
-# any of these via cfg.pair_repo / pair_col_a / pair_col_b / pair_split.
+# Presets map a friendly name → (repo, col_a, col_b, split, config). The repo
+# must stream as parquet on the HF hub; `config` is the dataset config name for
+# repos that require one (e.g. CNN/DM's "3.0.0"), else None. Override any field
+# via cfg.pair_repo / pair_col_a / pair_col_b / pair_split / pair_config. All
+# four presets below were verified to stream one row with the named columns.
 PAIR_PRESETS = {
-    # docstring ↔ code — the canonical cross-modal view gap (LLM-JEPA's regime).
-    # Verified streaming: cols ['comment','code'].
-    "code":    ("sentence-transformers/codesearchnet", "comment", "code",       "train"),
-    # complex ↔ simplified — meaning-preserving, surface-form view gap (monomodal
-    # counterpart to the cross-modal code pair). Verified cols ['text','simplified'].
-    # For a true document↔summary pair, override --pair-repo on the server (e.g.
-    # a namespaced parquet CNN/DM or XSum mirror with its article/summary columns).
-    "simplify": ("sentence-transformers/altlex",       "text",    "simplified", "train"),
+    # docstring ↔ code — the canonical CROSS-MODAL view gap (LLM-JEPA's regime).
+    "code":     ("sentence-transformers/codesearchnet", "comment",  "code",       "train", None),
+    # document ↔ summary — abstractive, strong abstraction asymmetry (XSum: the
+    # summary is a single sentence, no dataset config needed).
+    "summary":  ("EdinburghNLP/xsum",                   "document", "summary",    "train", None),
+    # document ↔ highlights — CNN/DailyMail, the standard summarisation benchmark
+    # (more extractive than XSum; requires the "3.0.0" config).
+    "cnndm":    ("abisee/cnn_dailymail",                "article",  "highlights", "train", "3.0.0"),
+    # complex ↔ simplified — MONOMODAL surface-form view gap (altlex).
+    "simplify": ("sentence-transformers/altlex",        "text",     "simplified", "train", None),
 }
 
 
@@ -119,16 +121,19 @@ class PairedCorpusDataset(IterableDataset):
     Each side is GPT-2 BPE tokenised, truncated to seq_len, and right-padded with
     mask_token_id (value irrelevant — pad_* masks it out of attention + pooling).
 
-    `pair_repo` must be a namespaced parquet HF repo (see PAIR_PRESETS). Rows with
-    an empty side are skipped. This is the from-scratch cross-view path — the
-    encoder is random-init, so the ONLY structure is the genuine A↔B pairing.
+    `repo` must be a parquet HF repo (see PAIR_PRESETS); `config` is its dataset
+    config name or None. Rows with an empty side are skipped. This is the
+    from-scratch cross-view path — the encoder is random-init, so the ONLY
+    structure to learn is the genuine A↔B pairing.
     """
 
     def __init__(self, repo: str, col_a: str, col_b: str,
-                 seq_len: int = 128, split: str = "train", pad_id: int = 50256):
+                 seq_len: int = 128, split: str = "train", pad_id: int = 50256,
+                 config: str | None = None):
         super().__init__()
         self.repo, self.col_a, self.col_b = repo, col_a, col_b
         self.seq_len, self.split, self.pad_id = seq_len, split, pad_id
+        self.config = config
         self.tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         self.tokenizer.model_max_length = 1_000_000
 
@@ -141,7 +146,9 @@ class PairedCorpusDataset(IterableDataset):
                 torch.tensor(pad, dtype=torch.bool))
 
     def __iter__(self):
-        dataset = load_dataset(self.repo, split=self.split, streaming=True)
+        dataset = (load_dataset(self.repo, self.config, split=self.split, streaming=True)
+                   if self.config else
+                   load_dataset(self.repo, split=self.split, streaming=True))
         for example in dataset:
             a, b = example.get(self.col_a), example.get(self.col_b)
             if not a or not b:                          # skip empty/missing sides
@@ -159,8 +166,9 @@ def get_paired_dataloader(cfg, num_workers: int = 0) -> DataLoader:
     col_a  = cfg.pair_col_a  or preset[1]
     col_b  = cfg.pair_col_b  or preset[2]
     split  = cfg.pair_split  or preset[3]
+    config = cfg.pair_config or preset[4]         # dataset config name, or None
     dataset = PairedCorpusDataset(repo, col_a, col_b, seq_len=cfg.seq_len,
-                                  split=split, pad_id=cfg.mask_token_id)
+                                  split=split, pad_id=cfg.mask_token_id, config=config)
     pin = num_workers > 0
     return DataLoader(
         dataset, batch_size=cfg.batch_size, num_workers=num_workers,

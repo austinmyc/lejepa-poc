@@ -77,11 +77,12 @@ class Config:
     # pair_source names a PAIR_PRESETS entry in data.py; pair_repo/col_a/col_b/
     # split override it (empty string = use the preset's value). The repo must be
     # a namespaced parquet HF repo (script-based datasets don't stream here).
-    pair_source: str = "code"        # "code" | "simplify" | custom (needs pair_repo)
+    pair_source: str = "code"        # "code" | "summary" | "cnndm" | "simplify" | custom
     pair_repo:   str = ""            # override HF repo; "" = use preset
     pair_col_a:  str = ""            # override view-A column; "" = use preset
     pair_col_b:  str = ""            # override view-B column; "" = use preset
     pair_split:  str = ""            # override split; "" = use preset
+    pair_config: str = ""            # override dataset config name; "" = use preset
     # Control arm: permute view B within the batch so pairs are broken. The
     # chance-floor analogue of the random-target control — if the objective still
     # helps the readout under shuffling, the A↔B pairing is not what carries the
