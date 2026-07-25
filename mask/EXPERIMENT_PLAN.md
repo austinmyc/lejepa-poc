@@ -55,21 +55,36 @@ across pairing types, not ride on one:
 Eval: unchanged — frozen encoder mean-pool → MTEB slice, vs the Part I baselines
 (`mlm_encoder_ctrl` 0.4485; BERT-base 0.483) and the RQ1 chance floor (0.164).
 
-**Arms** (30k screening tier; promote survivors to 120k×3-seed like Part I):
+**Arms** (`run_paired.sh`, 5 arms, `ARMS=` selects a subset; 30k screening tier):
 
-| Arm | Command flags | Tests |
+| Arm | Objective flags | Tests |
 |---|---|---|
-| pure cross-view | `--mlm-beta 0` | does a view gap **alone** escape the 2/P floor? (the discriminating run) |
-| anchored cross-view | `--mlm-beta 1 --mlm-head encoder` | LLM-JEPA in miniature — does the cross-view term beat CE-only at parity? |
-| **shuffled control** | `… --shuffle-pairs` | chance-floor analogue: permute view B in-batch. If the readout still improves, the A↔B *pairing* is not what carried the signal (guards against "it's just extra capacity / more tokens"). |
-| MLM-only baseline | `train.py --mlm-head encoder --mse-weight 0 --mlm-beta 1` | matched-compute CE-only reference (already have it). |
+| `pure` | `--mlm-beta 0 --lam L` | does a view gap **alone** escape the 2/P floor? |
+| `anchored` | `--mlm-beta 1 --mlm-head encoder --lam L` | LeJEPA cross-view + CE — beat CE-only? |
+| `shuffled` | `… --shuffle-pairs` | permute view B in-batch. real≈shuffled → pairing not load-bearing. |
+| `llmjepa` | `--mlm-beta 1 --mlm-head encoder --lam 0` | **faithful LLM-JEPA from scratch**: NTP + predictor-MSE, NO SIGReg. Rules out "our SIGReg sterilised it" as the reason for a null. |
+| `mlmonly` | `--mlm-beta 1 --mse-weight 0 --lam 0` | CE-only in the paired pipeline (batch-96 matched) — the apples-to-apples baseline for "does cross-view help/hurt". |
 
-**Reads.** anchored > MLM-only **and** shuffled ≈ MLM-only → the view gap is
-load-bearing and faithful = the constructive contribution. pure cross-view ≫ 0.164
-→ a view gap alone escapes the floor (view gap sufficient). pure cross-view ≈ 0.164
-→ view gap necessary but insufficient without abstraction → motivates cells 2–3.
-Any "shuffled ≈ real" result kills a naive positive claim early — same discipline
-as Part I's random-target floor.
+**Reads.** anchored/llmjepa > mlmonly **and** shuffled ≈ mlmonly → view gap
+load-bearing. pure ≫ 0.164 → view gap alone suffices; pure ≈/< 0.164 → needs the
+abstraction gap → cells 2–3. llmjepa ≈ shuffled → the null survives even without
+SIGReg (it's from-scratch, not the regulariser).
+
+**Results so far — code, 30k, 1 seed** (W&B `austinmyc/lejepa`, MTEB mean):
+pure **0.086** (below floor 0.164) · anchored **0.338** · shuffled **0.344**
+(≈ anchored) · vs Part I ctrl 0.4485 @ batch128. So on `code`: view gap alone
+fails, and the pairing is not load-bearing (anchored≈shuffled). Pending: `llmjepa`
++ `mlmonly` (confound controls), and the `summary` corpus (robustness replicate).
+
+**Downstream / cross-view retrieval** (`eval_retrieval.py`, `eval_retrieval_all.sh`):
+LLM-JEPA's own tasks (GSM8K, NL-Regex, Spider) are GENERATIVE — impossible on a
+frozen from-scratch encoder. The encoder-appropriate analogue that directly tests
+the paired hypothesis is bitext retrieval: freeze encoder, embed held-out
+(A,B) pairs, measure recall@1/@10 + MRR both ways. **anchored > shuffled on
+retrieval → the pairing taught the A↔B mapping even if MTEB looked flat**; anchored
+≈ shuffled → it didn't. Caveat: `code` (codesearchnet) ships only a `train` split,
+so code-retrieval overlaps training — trust the anchored−shuffled *delta*, not the
+absolute; `summary` (XSum) has a clean test split.
 
 **Then:** cell 2 (same-text masked JEPA on a pretrained HF encoder + LoRA — cheap,
 no paired corpus, isolates the abstraction gap), then cell 3 (both on) with
