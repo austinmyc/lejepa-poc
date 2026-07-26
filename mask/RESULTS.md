@@ -306,6 +306,44 @@ L ∈ {1,4,8,16}, fixed 15% budget. Headline hypothesis: Δ grows with L.
 w_glob term implemented but deliberately excluded from the sweep (attribution);
 test separately at one L afterwards.
 
+## Part II / Cell 1 — cross-view paired JEPA from scratch (2026-07-24/25)
+
+All: 768d/12L, batch **96** (≠ ctrl's 128 — cross-pipeline comparisons carry a
+token-budget caveat until `mlmonly` lands), 30k steps, seq 128, seed 1337,
+`--latent-space encoder`, lam .001 on SIGReg arms. Corpora: code =
+codesearchnet docstring↔code; summary = XSum document↔summary.
+
+| Run | Arm | STS | SICK | B77 | 20NG | Mean | Verdict |
+|---|---|---|---|---|---|---|---|
+| code_pure | JEPA only | .0998 | .1595 | .0322 | .0510 | **.0856** | below same-text floor .164 |
+| code_anchored | JEPA+MLM | — | — | — | — | **.3375** | |
+| code_shuffled | broken pairs | — | — | — | — | **.3435** | Δ −.006: pairing not load-bearing |
+| summary_pure | JEPA only | — | — | — | — | **.0704** | below floor, replicates |
+| summary_anchored | JEPA+MLM | — | — | — | — | **.3868** | |
+| summary_shuffled | broken pairs | — | — | — | — | **.3816** | Δ +.005: **sign flips vs code** — noise |
+
+**Cross-view retrieval** (eval_retrieval.py, N=1000, chance r@1=.001; code split=
+train ⚠ overlaps training, summary split=test clean):
+
+| Run | r@1 | r@10 | MRR | Verdict |
+|---|---|---|---|---|
+| code_pure | .0005 | .009 | .007 | at chance |
+| code_anchored | .1175 | .329 | .188 | |
+| code_shuffled | .1155 | .339 | .190 | ≈ anchored |
+| summary_pure | .0020 | .011 | .009 | at chance |
+| summary_anchored | .2805 | .642 | .400 | |
+| summary_shuffled | .2690 | .626 | .386 | ≈ anchored (clean test split) |
+
+**Cell-1 findings (2 corpora × 2 metrics, 1 seed):** (1) a genuine view gap
+alone does not rescue from-scratch latent prediction — `pure` lands below the
+same-text floor on both corpora, at exact retrieval chance. (2) The pairing is
+not load-bearing: anchored ≈ shuffled everywhere, MTEB delta flips sign between
+corpora. (3) The anchored arms' retrieval ability (.12–.28 r@1) is MLM + lexical
+overlap, not learned correspondence — proven by pure-at-chance + shuffled≈real.
+(4) summary_anchored (.387) > code_anchored (.338) tracks the MLM corpus (view-A
+text richness), not the pairing. Open: mlmonly/llmjepa confound arms,
+contrastive positive control, seeds. Registered predictions: THEORY.md P1–P4.
+
 ## Bookkeeping rules
 
 - Every new run gets a row here **when its MTEB lands** (config + all 4 task

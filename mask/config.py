@@ -88,6 +88,16 @@ class Config:
     # helps the readout under shuffling, the A↔B pairing is not what carries the
     # signal. 0 = real pairs.
     shuffle_pairs: bool = False
+    # ── Contrastive (InfoNCE) arm — the non-JEPA way to exploit the pairs ───
+    # w_con > 0 adds symmetric in-batch InfoNCE between pooled encoder codes of
+    # view A and view B (SimCSE/CLIP objective): matched pairs are positives,
+    # the rest of the batch are negatives. The POSITIVE CONTROL for the pairing
+    # question: if InfoNCE(real) ≫ InfoNCE(shuffled) while JEPA(real) ≈
+    # JEPA(shuffled), the pairs carry extractable signal and prediction is what
+    # fails — negatives are the missing ingredient (THEORY.md conjecture).
+    # NOTE: gradient must reach both views — keep sigreg_grad_scale at 1.0.
+    w_con:    float = 0.0
+    con_temp: float = 0.05           # InfoNCE temperature (SimCSE default)
 
     # ── Logging & checkpoints ──────────────────────────────────────────────
     log_every:      int = 50

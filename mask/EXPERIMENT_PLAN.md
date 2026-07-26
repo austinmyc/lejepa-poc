@@ -86,6 +86,25 @@ retrieval → the pairing taught the A↔B mapping even if MTEB looked flat**; a
 so code-retrieval overlaps training — trust the anchored−shuffled *delta*, not the
 absolute; `summary` (XSum) has a clean test split.
 
+## REMAINING RUNS — the path to submission (2026-07-27 consolidation)
+
+Theory track (no GPU): floor Props 1–2 + linear-CCA analysis + registered
+predictions P1–P4 live in **THEORY.md** — predictions written BEFORE these runs.
+
+| # | Wave | Runs | Command | Closes |
+|---|---|---|---|---|
+| 1 | **Confounds** (critical) | mlmonly, llmjepa × {code, summary} = 4 | `ARMS="mlmonly llmjepa" PAIRS="code summary" GPUS="0 2 3" bash mask/run_paired.sh` | batch-96 MLM baseline (P2); SIGReg-free faithful LLM-JEPA (P1) |
+| 2 | **Positive control** (headline-deciding) | contrastive, con_shuffled × {code, summary} = 4 | `ARMS="contrastive con_shuffled" PAIRS="code summary" GPUS="0 2 3" bash mask/run_paired.sh` | can ANY mechanism extract the pairing from scratch? (P3/P4) |
+| 3 | **Seeds** (rigor for the null) | anchored, shuffled, mlmonly × 2 more seeds, one corpus = 6 | wave-1/cell-1 commands + `--seed 2024` / `--seed 7` (append to run name) | error bars measured where the claim lives |
+| 4 | **Retrieval calibration** (cheap, minutes) | BERT-base + MiniLM on both corpora + retrieval on every new ckpt | `python mask/eval_retrieval.py --hf-model bert-base-uncased --pair-source code --wandb` (×4 combos); `bash mask/eval_retrieval_all.sh` after each wave | absolute calibration + cell-2 teaser (pretrained beats from-scratch?) |
+
+Decision point after wave 2: contrastive ≫ its shuffle → headline = "pairs are
+extractable from scratch, but only by contrast — prediction cannot" (ICLR/EMNLP
+framing, THEORY.md conjecture confirmed). Contrastive ≈ shuffle → broader null,
+TMLR anatomy framing. Both publishable; the controls make either interpretable.
+NOT needed: RQ4 span sweep (superseded by waves 3+5), more corpora, more Part-I
+loss families, full cells 2–3 (next paper; BERT retrieval baseline is the teaser).
+
 **Then:** cell 2 (same-text masked JEPA on a pretrained HF encoder + LoRA — cheap,
 no paired corpus, isolates the abstraction gap), then cell 3 (both on) with
 **CoT-as-action** as the novelty spike (condition the predictor on pooled CoT via

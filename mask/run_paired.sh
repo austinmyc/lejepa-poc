@@ -13,6 +13,10 @@
 #              "our SIGReg sterilised it" as the reason for a null)
 #   mlmonly  — CE only in the paired pipeline (mse-weight 0, lam 0, batch matched)
 #              (batch-96 baseline so "cross-view hurts" is apples-to-apples)
+#   contrastive — in-batch InfoNCE on pooled codes (SimCSE/CLIP), NO JEPA, no MLM
+#              (the non-predictive POSITIVE CONTROL: can ANY mechanism extract
+#              the pairing from scratch? THEORY.md prediction P3)
+#   con_shuffled — contrastive with permuted pairs               (its own control)
 #
 # Reads: anchored≈shuffled → pairing not load-bearing. llmjepa≈shuffled → the null
 #        survives even without SIGReg (it's from-scratch, not the regulariser).
@@ -37,7 +41,7 @@ mkdir -p logs
 
 # ───────────────── shared config (matches run_span.sh scale) ────────────────
 PAIRS="${PAIRS:-code summary}"       # pair sources to sweep (space-separated)
-ARMS="${ARMS:-pure anchored shuffled llmjepa mlmonly}"   # arms to run
+ARMS="${ARMS:-pure anchored shuffled llmjepa mlmonly contrastive con_shuffled}"
 STEPS="${STEPS:-30000}"
 WARMUP=1000
 D_MODEL=768; D_PROJ=768; ENC_LAYERS=12; N_HEADS=12
@@ -58,6 +62,8 @@ arm_flags() {
         shuffled) echo "--mlm-beta 1.0 --mlm-head encoder --lam $LAM --shuffle-pairs" ;;
         llmjepa)  echo "--mlm-beta 1.0 --mlm-head encoder --lam 0.0" ;;
         mlmonly)  echo "--mlm-beta 1.0 --mlm-head encoder --lam 0.0 --mse-weight 0.0" ;;
+        contrastive)  echo "--mlm-beta 0.0 --lam 0.0 --mse-weight 0.0 --w-con 1.0" ;;
+        con_shuffled) echo "--mlm-beta 0.0 --lam 0.0 --mse-weight 0.0 --w-con 1.0 --shuffle-pairs" ;;
         *) echo "__UNKNOWN_ARM__" ;;
     esac
 }

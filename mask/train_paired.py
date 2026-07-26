@@ -28,7 +28,7 @@ import torch
 import torch.nn.functional as F
 
 from config import Config
-from model  import LeJEPAText
+from model  import LeJEPAText, _masked_mean
 from sigreg import sigreg_loss
 from data   import get_paired_dataloader, make_masked_input
 from eval_mteb import run_mteb_eval
@@ -96,6 +96,20 @@ def train_paired(cfg: Config):
                           num_points=cfg.sigreg_num_points, global_step=step)
         loss = cfg.mse_weight * mse + cfg.lam * reg
 
+        # Contrastive (InfoNCE) — the non-JEPA mechanism on the same pairs.
+        # Symmetric in-batch: matched (A_i, B_i) positive, batch rest negatives.
+        # Uses pooled ENCODER codes of both views (gradient flows to both; z_b's
+        # grad_scale is identity at the default α=1).
+        l_con = torch.tensor(0.0, device=device)
+        if cfg.w_con > 0:
+            ea = F.normalize(_masked_mean(z_a, pad_a), dim=-1)   # (B, P)
+            eb = F.normalize(_masked_mean(z_b, pad_b), dim=-1)   # (B, P)
+            logits = ea @ eb.T / cfg.con_temp                    # (B, B)
+            labels = torch.arange(logits.shape[0], device=device)
+            l_con = 0.5 * (F.cross_entropy(logits, labels) +
+                           F.cross_entropy(logits.T, labels))
+            loss = loss + cfg.w_con * l_con
+
         # Optional BERT-style CE anchor on view A (separate masked pass) — turns
         # "pure cross-view" into "anchored cross-view" (the LLM-JEPA arm).
         ce = torch.tensor(0.0, device=device)
@@ -115,10 +129,11 @@ def train_paired(cfg: Config):
 
         if step % cfg.log_every == 0:
             print(f"step {step:05d} | loss {loss.item():.4f} | mse {mse.item():.4f} | "
-                  f"reg {reg.item():.4f} | ce {ce.item():.4f} | lr {lr:.2e}")
+                  f"reg {reg.item():.4f} | ce {ce.item():.4f} | con {l_con.item():.4f} | "
+                  f"lr {lr:.2e}")
             if cfg.use_wandb:
-                wandb.log({"loss": loss.item(), "mse": mse.item(),
-                           "reg": reg.item(), "ce": ce.item(), "lr": lr}, step=step)
+                wandb.log({"loss": loss.item(), "mse": mse.item(), "reg": reg.item(),
+                           "ce": ce.item(), "l_con": l_con.item(), "lr": lr}, step=step)
 
         if step % cfg.rank_every == 0:
             zg = space_geometry(z_b.detach())              # target proj (want isotropic)
@@ -180,6 +195,10 @@ if __name__ == "__main__":
     p.add_argument("--mlm-head",    type=str,   default="encoder",
                    choices=["pred", "encoder"])
     p.add_argument("--mse-weight",  type=float, default=Config.mse_weight)
+    p.add_argument("--w-con",       type=float, default=Config.w_con,
+                   help="InfoNCE weight (0 = off). The non-JEPA positive control on the pairs.")
+    p.add_argument("--con-temp",    type=float, default=Config.con_temp,
+                   help="InfoNCE temperature (SimCSE default 0.05).")
     p.add_argument("--save-every",  type=int,   default=Config.save_every)
     p.add_argument("--seed",        type=int,   default=Config.seed)
     p.add_argument("--wandb",       action="store_true")
@@ -200,6 +219,7 @@ if __name__ == "__main__":
         latent_space=a.latent_space,
         normalize_target=not a.no_normalize_target,
         mlm_beta=a.mlm_beta, mlm_head=a.mlm_head, mse_weight=a.mse_weight,
+        w_con=a.w_con, con_temp=a.con_temp,
         save_every=a.save_every, seed=a.seed,
         use_wandb=a.wandb, run_mteb=a.mteb, run_name=a.run_name,
     ))
