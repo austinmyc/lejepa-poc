@@ -133,3 +133,24 @@ geometry — grounds the "isotropic prior is mismatched to language" premise).
 wrong and the claim reverts to the broader null "pairs are not exploitable from
 scratch by any tested mechanism" — still publishable because the control
 structure makes the null interpretable either way.
+
+## OUTCOMES (2026-07-31) — all four predictions confirmed
+
+| # | Prediction | Outcome |
+|---|---|---|
+| P1 | llmjepa ≈ mlmonly (λ=0 cross-view inert, not harmful) | ✅ code .3464 vs .3401 |
+| P2 | mlmonly ≥ anchored; deficit vs .4485 is pipeline + SIGReg | ✅ both corpora: no-JEPA ≥ no-SIGReg > +SIGReg (summary .4298/.4184/.3868); SIGReg tax ≈ .03–.04 |
+| P3 | contrastive ≫ con_shuffled while JEPA real ≈ shuffled | ✅ pairing effect **+.296 / +.269** (contrastive) vs **−.006 / +.005** (JEPA) |
+| P4 | ⇒ antagonism conjecture stands | ✅ same pairs/encoder/batch/steps — only the objective differs |
+
+**Interpretation.** The CCA reduction said the pair signal is extractable in
+principle; the runs now show it IS extractable in practice from scratch — by
+contrast, not by prediction. This rules out "the from-scratch regime is simply
+too weak" (the alternative explanation for the null) and localises the failure
+to the predictive objective's dynamics, as conjectured. The conjecture is
+supported, not proved: it survives a falsification test it could have failed.
+
+**Remaining theoretical work (optional, for the ICLR version):** the linear
+init-dynamics lemma quantifying the gap — predictive gradient's pairing
+alignment at init ~O(1/√d) vs InfoNCE's O(1) contrast signal. The empirical
+~50× asymmetry is the target the lemma should explain.

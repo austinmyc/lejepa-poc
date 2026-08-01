@@ -28,23 +28,21 @@ Supersedes research_plan.md / research_plan_v2.md. Working docs:
   and signal terms are antagonistic; contrastive's are the same term.
   Predictions P1–P4 registered before the deciding runs.
 
-## Paper 1 — "When does latent prediction have signal in language?" (target: ICLR/EMNLP; TMLR floor)
+## Paper 1 — "When does latent prediction have signal in language?" (target: ICLR/EMNLP)
 
-Remaining evidence (all commands in mask/EXPERIMENT_PLAN.md "REMAINING RUNS"):
+**DECIDED (2026-07-31): waves 1–2 complete, all of P1–P4 confirmed.** Headline =
+*"the paired signal is learnable from scratch — but only by contrast; predictive
+latent objectives cannot access it."* Pairing effect (real − shuffled): JEPA
+−.006 / +.005 vs contrastive +.296 / +.269, both corpora. See RESULTS.md
+"waves 1–2" and THEORY.md "OUTCOMES".
 
-1. **Wave 1 — confounds (4 runs):** `mlmonly` (batch-matched CE baseline),
-   `llmjepa` (λ=0, faithful LLM-JEPA) × {code, summary}. Tests P1/P2.
-2. **Wave 2 — positive control (4 runs):** `contrastive` / `con_shuffled`
-   (in-batch InfoNCE, the non-JEPA mechanism on the same pairs). Tests P3/P4.
-   **Decision point:** contrastive ≫ its shuffle → headline = "pairs are
-   extractable from scratch, but only by contrast — prediction cannot"
-   (conjecture confirmed, ICLR framing). Contrastive ≈ shuffle → broader null
-   (TMLR anatomy framing). Either way publishable.
-3. **Wave 3 — seeds (6 runs):** ×3 on anchored/shuffled/mlmonly, one corpus —
-   error bars where the null lives.
-4. **Wave 4 — calibration (cheap):** BERT-base / MiniLM retrieval on the same
-   pairs (also the cell-2 teaser: does a pretrained encoder beat all
-   from-scratch arms with zero pair training?).
+Remaining evidence:
+
+3. **Wave 3 — seeds (~8 runs):** ×3 on anchored/shuffled/mlmonly/contrastive,
+   one corpus — error bars where the claims live (both the null and the +.28).
+4. **Wave 4 — calibration (cheap):** retrieval on the 8 new checkpoints;
+   BERT-base / MiniLM on the same pairs (also the cell-2 teaser: does a
+   pretrained encoder beat all from-scratch arms with zero pair training?).
 
 Writing tracks in parallel: floor propositions into the paper; timeboxed
 (1 wk) linear init-dynamics lemma; anisotropy grounding (Ethayarajh, Gao).

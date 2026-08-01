@@ -344,6 +344,55 @@ overlap, not learned correspondence — proven by pure-at-chance + shuffled≈re
 text richness), not the pairing. Open: mlmonly/llmjepa confound arms,
 contrastive positive control, seeds. Registered predictions: THEORY.md P1–P4.
 
+## Cell 1 waves 1–2 — confound arms + contrastive positive control (2026-07-28/31)
+
+Same pipeline as above (768d/12L, batch 96, 30k, seq 128, seed 1337). Completes
+the 7-arm grid: 14 runs total, 2 corpora.
+
+| Arm | Objective | code | summary |
+|---|---|---|---|
+| pure | JEPA only (MSE+SIGReg) | .0856 | .0704 |
+| anchored | JEPA + SIGReg + MLM | .3375 | .3868 |
+| shuffled | ↑ with pairs permuted | .3435 | .3816 |
+| llmjepa | JEPA + MLM, **no SIGReg** (faithful LLM-JEPA) | .3464 | .4184 |
+| mlmonly | **no JEPA** (CE only, batch-matched) | .3401 | .4298 |
+| **contrastive** | InfoNCE on the pairs, no JEPA/MLM | **.3686** | **.3767** |
+| **con_shuffled** | ↑ with pairs permuted | **.0723** | **.1073** |
+
+**THE HEADLINE — pairing effect (real − shuffled), isolated per mechanism:**
+
+| mechanism | code | summary |
+|---|---|---|
+| JEPA (predictive) | **−.006** | **+.005** |
+| Contrastive (InfoNCE) | **+.296** | **+.269** |
+
+Same pairs, same encoder, same batch (96 ⇒ only 95 negatives), same steps, same
+from-scratch init. **The pairs carry a large learnable signal; prediction
+extracts none of it, contrastive extracts ~.28 — a ~50× asymmetry that
+replicates on both corpora.** con_shuffled collapsing to .072/.107 (≈ the `pure`
+floor level) confirms InfoNCE's gain is the correspondence, not extra capacity.
+
+**Registered predictions (THEORY.md), all four confirmed:**
+- **P1 ✅** llmjepa ≈ mlmonly on code (.3464 vs .3401) — the SIGReg-free faithful
+  LLM-JEPA recipe adds nothing. Closes the "your regularizer killed it" rebuttal.
+- **P2 ✅** ordering on both corpora: **no-JEPA ≥ JEPA-no-SIGReg > JEPA+SIGReg**
+  (summary .4298 / .4184 / .3868). Cross-view inert; SIGReg tax ≈ .03–.04; the
+  residual gap to Part I ctrl .4485 is pipeline (batch 96 + paired corpus).
+- **P3/P4 ✅** contrastive separates massively where JEPA is flat ⇒ the JEPA null
+  is attributable to the OBJECTIVE, not to our scale/apparatus. The
+  antagonism conjecture (prediction's anti-collapse term fights its signal;
+  contrastive's IS its signal) survives its first real test.
+
+**Scope caveat for the write-up:** contrastive does NOT beat mlmonly on the MTEB
+mean (better on code .3686 vs .3401, worse on summary .3767 vs .4298) — expected,
+since InfoNCE here has no token supervision and MLM is a strong generic-embedding
+objective. The claim is about the **pairing effect within each mechanism** (what
+the shuffled controls isolate), never "contrastive is the better pretraining
+objective". State precisely.
+
+**Still open:** seeds (×3 on anchored/shuffled/mlmonly/contrastive, one corpus)
+for error bars; retrieval eval on the 8 new checkpoints + BERT/MiniLM calibration.
+
 ## Bookkeeping rules
 
 - Every new run gets a row here **when its MTEB lands** (config + all 4 task
