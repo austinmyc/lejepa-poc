@@ -21,7 +21,7 @@ N_PAIRS="${N_PAIRS:-1000}"
 DEFAULT_PAIR="${DEFAULT_PAIR:-code}"
 
 shopt -s nullglob
-found=0
+found=0; ok=0; failed=""
 for ckpt in $CKPT_GLOB; do
     found=1
     case "$ckpt" in
@@ -32,7 +32,18 @@ for ckpt in $CKPT_GLOB; do
         *)           pair="$DEFAULT_PAIR" ;;
     esac
     echo "──────────────────────────────────────────────────────────"
-    CUDA_VISIBLE_DEVICES="$GPU" python mask/eval_retrieval.py \
-        --ckpt "$ckpt" --pair-source "$pair" --n-pairs "$N_PAIRS" --wandb
+    # Non-fatal per checkpoint: one bad/incompatible file must not abort the
+    # whole sweep (script runs under `set -e`). Failures are collected and
+    # reported at the end.
+    if CUDA_VISIBLE_DEVICES="$GPU" python mask/eval_retrieval.py \
+           --ckpt "$ckpt" --pair-source "$pair" --n-pairs "$N_PAIRS" --wandb; then
+        ok=$((ok + 1))
+    else
+        echo "  !! FAILED: $ckpt (continuing)"
+        failed="$failed$ckpt"$'\n'
+    fi
 done
 [ "$found" = 1 ] || echo "No checkpoints matched: $CKPT_GLOB"
+echo "══════════════════════════════════════════════════════════"
+echo "retrieval sweep done: $ok succeeded"
+[ -n "$failed" ] && { echo "failed:"; printf '%s' "$failed"; } || true

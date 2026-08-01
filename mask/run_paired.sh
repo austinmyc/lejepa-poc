@@ -49,6 +49,9 @@ BATCH="${BATCH:-96}"                 # kept fixed across arms so comparisons are
 SEQLEN=128                           #   batch-matched (the mlmonly baseline too)
 LR=4e-4
 LAM="${LAM:-0.001}"                  # SIGReg weight for SIGReg-bearing arms
+SEED="${SEED:-1337}"                 # SEED=2024 … for the error-bar wave; the
+                                     # seed is appended to non-default run names
+                                     # so repeats don't collide in W&B
 read -r -a GPU <<< "${GPUS:-0 1 2}"
 NGPU=${#GPU[@]}
 TS="$(date +%Y%m%d_%H%M%S)"
@@ -64,6 +67,12 @@ arm_flags() {
         mlmonly)  echo "--mlm-beta 1.0 --mlm-head encoder --lam 0.0 --mse-weight 0.0" ;;
         contrastive)  echo "--mlm-beta 0.0 --lam 0.0 --mse-weight 0.0 --w-con 1.0" ;;
         con_shuffled) echo "--mlm-beta 0.0 --lam 0.0 --mse-weight 0.0 --w-con 1.0 --shuffle-pairs" ;;
+        # Single-term PREDICTION arm — the exact structural twin of `contrastive`
+        # (one loss term, no SIGReg, no MLM). Makes prediction-vs-contrast a
+        # single-variable comparison, and gives the pure-prediction mechanism its
+        # own shuffled control (which `pure` never had).
+        predict_only)     echo "--mlm-beta 0.0 --lam 0.0 --mse-weight 1.0" ;;
+        pred_shuffled)    echo "--mlm-beta 0.0 --lam 0.0 --mse-weight 1.0 --shuffle-pairs" ;;
         *) echo "__UNKNOWN_ARM__" ;;
     esac
 }
@@ -80,7 +89,7 @@ run() {
       --enc-layers "$ENC_LAYERS" --n-heads "$N_HEADS" \
       --batch-size "$BATCH" --seq-len "$SEQLEN" \
       --lr "$LR" --warmup-steps "$WARMUP" \
-      --latent-space encoder \
+      --latent-space encoder --seed "$SEED" \
       --wandb --mteb --run-name "$NAME" \
       "$@"
 }
@@ -106,6 +115,7 @@ run_wave() {
         fi
         local gpu="${GPU[$((i % NGPU))]}"
         local name="paired_${TS}_${PAIR}_${ARM}"
+        [ "$SEED" != "1337" ] && name="${name}_s${SEED}"
         # shellcheck disable=SC2086
         run "$gpu" "$PAIR" "$name" $flags &> "logs/${name}.log" &
         pids+=("$!"); arms+=("$ARM")
