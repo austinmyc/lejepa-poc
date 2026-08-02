@@ -1,7 +1,41 @@
-# Part III plan — CoT as the predictor's ACTION (action-conditioned JEPA finetuning)
+# Part III — CoT as the predictor's ACTION (action-conditioned JEPA finetuning)
 
-Status: PLANNING NOTE (2026-07-27). No code yet. Gated on Part II waves 1–2
-(mask/EXPERIMENT_PLAN.md) — paper 1 closes first; this is paper 2.
+Status: **CODE IMPLEMENTED (2026-08-03)** — `ft/{config,data,model,train,
+eval_gsm8k}.py`, `ft/run.sh`. Smoke-tested end-to-end on CPU (all four action
+modes + A5; both loss terms live). Not yet run on a real diffusion LM.
+
+## Method implemented (DLLM-JEPA, arXiv 2606.00091)
+
+    L_total = L_diff + λ·L_JEPA,          λ ∈ {0.5, 1, 2}
+    L_JEPA  = 1 − cos( sg(z_tH), g_φ(z_tL) )
+    z_tL = Pool(f_θ(x_tL)),  z_tH = Pool(f_θ'(x_tH)),  θ' = EMA(θ), τ = .996
+    two views = SAME input at two mask rates, t_L = .2 (context), t_H = .7 (target)
+    Pool = mean over non-masked, non-pad tokens → LayerNorm
+    g_φ  = k ∈ {1..5} transformer layers, randomly initialised
+    L_diff = LLaDA SFT masked-token CE, 1/t reweighted, response tokens only
+
+Two deliberate deviations from the paper, both for compute (they full-finetune
+on 8×A100):
+1. **LoRA** instead of full FT.
+2. **EMA over LoRA deltas only.** Base weights are frozen and shared by student
+   and teacher, so the teacher needs an EMA of the trainable params only — same
+   semantics as a full EMA teacher, a few MB instead of a second ~16 GB copy.
+
+## CRITICAL design point — the two stages use DIFFERENT generation targets
+
+Discovered while implementing: the reproduction and the action experiment cannot
+share one config.
+- **Reproduction (R0/R1)** uses the *standard* GSM8K SFT target (CoT + answer);
+  the model generates its reasoning. This is what the paper measures.
+- **Action experiment (A1–A4)** uses an *answer-only* target so no CoT is
+  generated at test time; the CoT enters ONLY as the predictor's action. That is
+  the "train-time reasoning supervision, test-time short inference" claim.
+Comparing A2 against R1 directly would confound conditioning with target format.
+A1 (answer-only, no action) is the correct reference for A2; A5 (= R0, CoT-SFT)
+is the accuracy comparator.
+
+Gated on Part II waves 1–2 (mask/EXPERIMENT_PLAN.md) — paper 1 closes first;
+this is paper 2.
 
 ## The idea, in the world-model frame
 
