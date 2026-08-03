@@ -9,3 +9,4 @@ __pycache__/
 wandb/
 mteb_results/*
 ft_checkpoints/
+data_cache/
