@@ -207,49 +207,103 @@ anything else.
 
 ---
 
-## 6. Why this matters — the critical questions
+## 6. Where this sits in the literature
 
-**"Nobody claimed from-scratch JEPA works. Why test it?"**
-Fair, and on its own this phase is motivation rather than a headline. Its value
-is that it built and validated the two instruments used everywhere else: the
-**chance-level diagnostic** (which turns an uninterpretable loss number into a
-yes/no on whether an objective is learning) and the **shuffle control**. Both are
-cheap and general.
+**JEPA's core claim is a from-scratch pretraining claim.** This matters, because
+it means Phase 1 tests the paradigm on its own terms rather than a strawman:
 
-**"So what if it fails from scratch — the papers finetune."**
-Correct, and that is exactly the argument for the next experiment rather than a
-defence of this one. What Phase 1–2 establish is that a *reported gain is not
-evidence that the pairing caused it*. Our own anchored arm looked perfectly
-reasonable (.338) until the scrambled arm (.344) showed the pairing contributed
-nothing whatsoever.
+| paper | setup | evaluation | headline |
+|---|---|---|---|
+| I-JEPA (CVPR 2023) | ViT-H/14, **random init**, ImageNet | linear probe, **frozen** features | 81.7% — beats MAE (pixel reconstruction) |
+| LeJEPA (2025) | ImageNet-1k, 60+ architectures | linear eval, **frozen** backbone | ~79%; SIGReg *replaces* stop-grad/EMA/schedules |
+| V-JEPA / V-JEPA 2 | from-scratch video pretraining | frozen features | — |
 
-**"Isn't 'contrastive works on pairs' already known?"**
-Yes — from pretrained initialization (SimCSE) or at CLIP scale. Its role here is
-not discovery; it is the **positive control** that makes the JEPA null
-interpretable. Without it, "we found no effect" is indistinguishable from "our
-setup can't detect an effect."
+That is our exact protocol: pretrain from scratch, freeze, evaluate frozen
+representations. And I-JEPA's headline is precisely a *comparison of pretraining
+objectives* — latent prediction beats reconstruction. So Phase 1 asks whether
+that transfers to language:
 
-**"Then what is the actual contribution?"**
-The honest version, in order of strength:
-1. A measured contrast between two objectives on identical data showing the
-   pairing is usable, and that predictive latent objectives cannot use it.
-2. Two reusable instruments: the chance-level test and the shuffle control.
-3. A mechanism, with derivation and confirmed pre-registered predictions.
-4. The dissection of data2vec's implicit anchor — the field's one from-scratch
-   success — explained quantitatively (.16 → .22 → .45).
+| | vision (published) | text (ours) |
+|---|---|---|
+| latent prediction | **81.7** (wins) | **.164** |
+| reconstruction baseline | MAE (lower) | MLM **.4485** |
 
-**The crucial gap, stated plainly.** LLM-JEPA and DLLM-JEPA report gains against a
-no-JEPA baseline. Neither, as far as we have found, reports the *scrambled-pair*
-comparison — so their gains are not yet attributed to the pairing rather than to
-the auxiliary loss's regularizing effect or the predictor's extra capacity. We
-have the control, built and validated. Applying it where the gains are claimed is
-the decisive experiment, and it is informative either way: if the gain survives
-scrambling, the published mechanism is wrong; if it vanishes, the mechanism is
-confirmed and we have isolated what makes the pairing usable.
+Same design, opposite outcome — a 3× gap in the other direction. LeJEPA is hit
+more directly still: its claim is that SIGReg *replaces* the heuristics, validated
+on 60+ models, **all vision**. In text we find SIGReg is not merely unnecessary
+but actively harmful (−.14 to −.24), and we isolated the pathway — the damage
+travels through the whitened target geometry, not the regularizer's gradient.
 
-## 7. What's next
+**The candidate explanation for the asymmetry.** In vision, pixels are not
+abstractions: there is a large gap between raw input and semantic content, and
+that gap is what latent prediction exploits. In text, tokens are *already*
+abstractions — a word carries meaning — so token prediction already operates at
+the semantic level and there is no comparable gap to exploit.
 
-- **Now:** DLLM-JEPA Gate 1, then add the scrambled-view arm — turning a
+**What the text-JEPA papers actually did** (checked against the papers):
+
+| | LLM-JEPA (2509.14252) | DLLM-JEPA (2606.00091) |
+|---|---|---|
+| finetuning gains | ✓ (+14.17pp NL-RX) | ✓ (+18.7pp GSM8K, LLaDA-8B) |
+| **from-scratch pretraining** | **✓ — Llama-3.2-1B from random init on NL-RX-SYNTH: 54.38 → 60.59 (p = 2.9e-4)** | ✗ |
+| shuffled / mismatched-pair control | **✗ none reported** | **✗ none reported** |
+| ablations reported | LoRA rank | λ, predictor depth, mask rates |
+
+So LLM-JEPA *does* report a from-scratch pretraining gain — which superficially
+contradicts our null. Two things reconcile them, and both are the gap:
+
+1. **Task-alignment confound.** Their from-scratch experiment pretrains on
+   NL-RX-SYNTH and evaluates on NL-RX-SYNTH accuracy — where the task is
+   literally "map natural language → regex" and the JEPA views are literally
+   (natural language, regex). The JEPA loss is therefore a soft form of the
+   downstream task itself: auxiliary task supervision, not general
+   representation learning. Our setting (general corpora, frozen general-purpose
+   embeddings) has no such alignment — and there the effect is zero.
+2. **No attribution control.** Neither paper reports what happens when the pairs
+   are scrambled. So none of these gains — finetuning or pretraining — has yet
+   been attributed to the *semantic correspondence* rather than to the auxiliary
+   loss's regularizing effect or the predictor's added capacity.
+
+Our own data shows why point 2 is not pedantry: the anchored arm looked entirely
+reasonable at **.338** until the scrambled arm came in at **.344**.
+
+## 7. The gap we can fill
+
+> Published JEPA-for-text gains are (a) never attributed via a pairing control,
+> and (b) measured on tasks the pairs themselves define. Whether latent
+> prediction improves **general-purpose** text representations — the claim vision
+> JEPA makes and validates by linear probe — has not been tested. We tested it,
+> and it does not.
+
+Three contributions follow, in order of strength:
+
+1. **The transfer failure, with a mechanism.** Vision's central JEPA result does
+   not carry to text; the chance-floor derivation says exactly why, and the
+   token-vs-pixel abstraction argument says why it should have been expected.
+2. **An attribution result.** Contrastive extracts +.296/+.269 from the same
+   pairs that predictive JEPA extracts −.006/+.005 from — so the signal is there
+   and the objective is what fails. The shuffle control and chance-level test are
+   reusable instruments the field currently lacks.
+3. **data2vec's implicit anchor dissected** — the one published from-scratch text
+   success, explained quantitatively (.16 → .22 → .45).
+
+**The decisive next experiment** is now precisely defined: reproduce LLM-JEPA's
+own from-scratch pretraining setting (Llama-3.2-1B, random init, NL-RX-SYNTH) and
+add the scrambled-pair arm. It is cheap — 1B parameters, 10k examples — and
+informative either way:
+
+- gain **survives** scrambling → the published mechanism attribution is wrong;
+  the benefit is regularization, not the pairing.
+- gain **vanishes** → the pairing is real but only under task-aligned evaluation,
+  which together with our general-representation null gives the complete picture:
+  latent prediction on pairs is task-specific auxiliary supervision, not a
+  general pretraining objective.
+
+## 8. What's next
+
+- **Immediate:** the LLM-JEPA from-scratch reproduction **plus its missing
+  scrambled-pair control** — the experiment above.
+- **Running:** DLLM-JEPA Gate 1, then the same scrambled-view arm, turning a
   reproduction into an attribution test.
 - **Then:** chain-of-thought as the predictor's **action** input. Both papers drop
   the action from LeCun's original formulation; for reasoning tasks the CoT is the
