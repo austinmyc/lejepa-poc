@@ -34,9 +34,38 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nlrx import download, splits, NLRXDataset, collate
+from nlrx import download, splits, NLRXDataset, collate, SEP
 
 PRED_TOKEN = "[PRED]"
+
+
+@torch.no_grad()
+def quick_eval(model, tok, pairs, device, n=200, max_new=48, bs=32):
+    """Greedy exact-match accuracy on a held-out slice, run during training.
+
+    Worth the cost here: a 1B model on 6.5k examples overfits heavily, so the
+    VALIDATION CURVE is itself evidence about the mechanism — if the JEPA term's
+    benefit is regularisation rather than semantic pairing, the shuffled arm's
+    curve should track the real one.
+    """
+    model.eval()
+    was_cache, was_side = model.config.use_cache, tok.padding_side
+    model.config.use_cache, tok.padding_side = True, "left"
+    data = pairs[:n]
+    correct = 0
+    for i in range(0, len(data), bs):
+        chunk = data[i: i + bs]
+        enc = tok([nl + SEP for nl, _ in chunk], return_tensors="pt",
+                  padding=True, add_special_tokens=False).to(device)
+        out = model.generate(**enc, max_new_tokens=max_new, do_sample=False,
+                             pad_token_id=tok.pad_token_id)
+        gen = tok.batch_decode(out[:, enc["input_ids"].shape[1]:],
+                               skip_special_tokens=True)
+        correct += sum(g.strip().split("\n")[0].strip() == gold
+                       for (_, gold), g in zip(chunk, gen))
+    model.config.use_cache, tok.padding_side = was_cache, was_side
+    model.train()
+    return correct / max(1, len(data))
 
 
 def build_model(model_id, n_pred_tokens, smoke=False, device="cpu"):
@@ -79,9 +108,9 @@ def train(a):
     print(f"device={device} dtype={dtype} params={n_params/1e6:.0f}M "
           f"λ={a.lam} shuffle={a.shuffle_pairs} k_pred={a.n_pred_tokens}")
 
-    train_pairs, _, _ = splits(download(a.data_cache))
+    train_pairs, val_pairs, _ = splits(download(a.data_cache))
     if a.smoke:
-        train_pairs = train_pairs[:16]
+        train_pairs, val_pairs = train_pairs[:16], val_pairs[:4]
     ds = NLRXDataset(train_pairs, tok, a.max_len, a.n_pred_tokens, PRED_TOKEN)
     dl = DataLoader(ds, batch_size=a.batch_size, shuffle=True, collate_fn=collate,
                     drop_last=True)
@@ -145,6 +174,14 @@ def train(a):
                                "lr": sched.get_last_lr()[0]}, step=step)
             if a.smoke and step >= 4:
                 break
+
+        # ── validation accuracy each epoch (the overfitting/regularisation curve)
+        if a.eval_every and (ep + 1) % a.eval_every == 0:
+            acc = quick_eval(model, tok, val_pairs, device, n=a.eval_n,
+                             bs=a.batch_size)
+            print(f"ep{ep} VAL exact-match {acc:.4f}")
+            if a.wandb:
+                wandb.log({"val/exact": acc, "epoch": ep + 1}, step=step)
         if a.smoke:
             break
 
@@ -179,9 +216,12 @@ if __name__ == "__main__":
     p.add_argument("--out-dir", default="./ft_checkpoints")
     p.add_argument("--run-name", default="llmjepa_nlrx")
     p.add_argument("--log-every", type=int, default=50)
+    p.add_argument("--eval-every", type=int, default=2,
+                   help="Run validation accuracy every N epochs (0 = off).")
+    p.add_argument("--eval-n", type=int, default=200, help="Validation subset size.")
     p.add_argument("--wandb", action="store_true")
     p.add_argument("--smoke", action="store_true")
     a = p.parse_args()
     if a.smoke:
-        a.log_every = 1
+        a.log_every, a.eval_every, a.eval_n = 1, 1, 4
     train(a)
