@@ -136,6 +136,7 @@ def train(a):
     step = 0
     for ep in range(a.epochs):
         for b in dl:
+            diag_spread = float('nan')
             seq, seq_real = b["seq_ids"].to(device), b["seq_real"].to(device)
             sup = b["sup_mask"].to(device)
 
@@ -159,6 +160,16 @@ def train(a):
                 z_pred = encode_last(model, text_ids, text_real)   # Pred(Enc(Text))
                 z_code = encode_last(model, code_ids, code_real)   # Enc(Code)
                 l_jepa = (1 - F.cosine_similarity(z_pred.float(), z_code.float(), -1)).mean()
+                # COLLAPSE DIAGNOSTIC. LLM-JEPA uses no stop-grad and no EMA, so
+                # the term can be satisfied trivially by mapping every input to
+                # ONE vector. l_jepa→0 alone cannot distinguish "learned the
+                # correspondence" from "collapsed"; batch spread can. If
+                # code_spread→0, the term is inert and any B1-vs-B2 comparison
+                # is uninformative.
+                if step % a.log_every == 0:
+                    with torch.no_grad():
+                        zc = F.normalize(z_code.float(), dim=-1)
+                        diag_spread = (1 - (zc @ zc.T)).mean().item()   # 0 = collapsed
 
             loss = (l_ntp + a.lam * l_jepa) / a.grad_accum
             loss.backward()
@@ -170,9 +181,11 @@ def train(a):
 
             if step % a.log_every == 0:
                 print(f"ep{ep} step {step}/{total} | ntp {l_ntp.item():.4f} | "
-                      f"jepa {l_jepa.item():.4f} | lr {sched.get_last_lr()[0]:.2e}")
+                      f"jepa {l_jepa.item():.4f} | spread {diag_spread:.4f} | "
+                      f"lr {sched.get_last_lr()[0]:.2e}")
                 if a.wandb:
                     wandb.log({"l_ntp": l_ntp.item(), "l_jepa": l_jepa.item(),
+                               "code_spread": diag_spread,
                                "lr": sched.get_last_lr()[0]}, step=step)
             if a.smoke and step >= 4:
                 break
@@ -205,10 +218,10 @@ if __name__ == "__main__":
                    help="THE CONTROL: pair each description with a random other regex "
                         "in the JEPA term only.")
     p.add_argument("--n-pred-tokens", type=int, default=1, help="k [PRED] tokens.")
-    p.add_argument("--epochs", type=int, default=30)
+    p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--grad-accum", type=int, default=1)
-    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--weight-decay", type=float, default=0.1)
     p.add_argument("--max-len", type=int, default=128)
     p.add_argument("--grad-ckpt", action="store_true")
@@ -218,7 +231,7 @@ if __name__ == "__main__":
     p.add_argument("--out-dir", default="./ft_checkpoints")
     p.add_argument("--run-name", default="llmjepa_nlrx")
     p.add_argument("--log-every", type=int, default=50)
-    p.add_argument("--eval-every", type=int, default=2,
+    p.add_argument("--eval-every", type=int, default=1,
                    help="Run validation accuracy every N epochs (0 = off).")
     p.add_argument("--eval-n", type=int, default=200, help="Validation subset size.")
     p.add_argument("--wandb", action="store_true")
