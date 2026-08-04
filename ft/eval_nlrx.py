@@ -1,12 +1,18 @@
 """
-NL-RX-SYNTH eval: generate a regex from each description, score exact match.
+NL-RX-SYNTH eval: generate a regex from each description and score it three ways.
 
     python ft/eval_nlrx.py --ckpt ft_checkpoints/B1_jepa --split test --wandb
 
-Note on the metric: Locascio et al. score DFA-equivalence (semantically identical
-regexes count as correct). Exact string match is a strict lower bound on that;
-`--dfa` additionally accepts regexes that behave identically on a random string
-sample, which approximates DFA-equivalence without a DFA library.
+Metrics, in order of laxness:
+  prefix — generation STARTS WITH the gold regex. This is LLM-JEPA's own
+           criterion for its PRETRAINING experiments ("valid as long as it
+           starts with the ground truth"), so it is the number to compare
+           against their 54.38 / 60.59. Primary metric here.
+  exact  — exact string equality (their finetuning-table criterion). Only
+           reachable if the model learned to emit EOS and stop.
+  --dfa  — approximate DFA-equivalence (Locascio et al. score semantic
+           equivalence); accepts regexes behaving identically on sampled
+           strings, guarded against degenerate empty-language agreement.
 """
 
 import argparse, os, random, re, string, sys
@@ -72,7 +78,7 @@ def main():
     if a.eval_n:
         data = data[: a.eval_n]
 
-    exact = behav = 0
+    exact = behav = prefix = 0
     for i in range(0, len(data), a.batch_size):
         chunk = data[i: i + a.batch_size]
         prompts = [nl + SEP for nl, _ in chunk]
@@ -84,17 +90,22 @@ def main():
                                skip_special_tokens=True)
         for (nl, gold), g in zip(chunk, gen):
             pred = g.strip().split("\n")[0].strip()
+            # PREFIX is the paper's criterion for the PRETRAINING experiments:
+            # "valid as long as it starts with the ground truth". Exact match is
+            # what they use for the finetuning tables. We report both.
+            if pred.startswith(gold):
+                prefix += 1
             if pred == gold:
                 exact += 1; behav += 1
             elif a.dfa and behavioural_match(pred, gold):
                 behav += 1
         done = min(i + a.batch_size, len(data))
         if done % (a.batch_size * 10) == 0:
-            print(f"  [{done}/{len(data)}] exact {exact/done:.4f}")
+            print(f"  [{done}/{len(data)}] prefix {prefix/done:.4f} exact {exact/done:.4f}")
 
     n = len(data)
-    print(f"NL-RX {a.split}: exact-match {exact/n:.4f} ({exact}/{n})"
-          + (f" | behavioural {behav/n:.4f}" if a.dfa else ""))
+    print(f"NL-RX {a.split}: prefix {prefix/n:.4f} ({prefix}/{n}) | "
+          f"exact {exact/n:.4f}" + (f" | behavioural {behav/n:.4f}" if a.dfa else ""))
 
     if a.wandb:
         import wandb
@@ -103,7 +114,8 @@ def main():
         wandb.init(entity="austinmyc", project="lejepa-ft",
                    name=a.run_name or f"eval_{os.path.basename(a.ckpt)}",
                    config={"ckpt": a.ckpt, "split": a.split, "n": n})
-        wandb.log({"nlrx/exact": exact / n, "nlrx/behavioural": behav / n})
+        wandb.log({"nlrx/prefix": prefix / n, "nlrx/exact": exact / n,
+                   "nlrx/behavioural": behav / n})
         wandb.finish()
 
 

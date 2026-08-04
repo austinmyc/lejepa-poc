@@ -64,6 +64,7 @@ class NLRXDataset(Dataset):
         self.pred_ids = tokenizer.encode(pred_token * n_pred_tokens,
                                          add_special_tokens=False)
         self.pad_id = tokenizer.pad_token_id or 0
+        self.eos_id = tokenizer.eos_token_id
 
     def __len__(self):
         return len(self.pairs)
@@ -76,8 +77,14 @@ class NLRXDataset(Dataset):
 
     def __getitem__(self, i):
         nl, rx = self.pairs[i]
-        nl_ids = self.tok.encode(nl, add_special_tokens=False)
-        rx_ids = self.tok.encode(SEP + rx, add_special_tokens=False)
+        # Tokenize the prompt as "NL + SEP" (one call) so training and generation
+        # see identical token boundaries — encoding NL and SEP separately can
+        # merge differently at the seam and put the model off-distribution.
+        nl_ids = self.tok.encode(nl + SEP, add_special_tokens=False)
+        rx_ids = self.tok.encode(rx, add_special_tokens=False)
+        if self.eos_id is not None:      # let the model learn to STOP; without an
+            rx_ids = rx_ids + [self.eos_id]   # EOS it runs on and exact match is
+                                              # unreachable (only prefix works)
 
         # Full sequence for next-token prediction; supervise the regex half only
         # (the NL prompt is context, exactly as in supervised NL→regex training).
