@@ -25,10 +25,11 @@ if [ -f .env ]; then set -a; source .env 2>/dev/null || true; set +a; fi
 mkdir -p logs
 
 MODEL="${MODEL:-unsloth/Llama-3.2-1B}"     # architecture only — weights are RANDOM
-EPOCHS="${EPOCHS:-30}"
+EPOCHS="${EPOCHS:-4}"        # their code: "we fix number of epochs to 4"
 BATCH="${BATCH:-32}"
-LR="${LR:-3e-4}"
-LAM="${LAM:-1.0}"
+KPRED="${KPRED:-3}"          # paper's pretraining k=3
+LR="${LR:-8e-5}"            # paper's pretraining lr
+LAM="${LAM:-2.0}"           # paper's pretraining lambda=2
 SEEDS="${SEEDS:-1337}"
 read -r -a GPU <<< "${GPUS:-0 2 3}"
 NGPU=${#GPU[@]}
@@ -39,6 +40,7 @@ run() {  # run <gpu> <name> <extra flags...>
     echo "═══ $name (GPU=$g) ═══"
     CUDA_VISIBLE_DEVICES="$g" python ft/train_llmjepa.py \
         --model "$MODEL" --epochs "$EPOCHS" --batch-size "$BATCH" --lr "$LR" \
+        --n-pred-tokens "$KPRED" \
         --grad-ckpt --run-name "$name" --wandb "$@" \
     && CUDA_VISIBLE_DEVICES="$g" python ft/eval_nlrx.py \
         --ckpt "ft_checkpoints/$name" --split test --dfa --wandb --run-name "eval_$name"

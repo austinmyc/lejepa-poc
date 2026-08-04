@@ -213,15 +213,19 @@ if __name__ == "__main__":
     p.add_argument("--model", default="unsloth/Llama-3.2-1B",
                    help="Architecture source (config+tokenizer only; weights are RANDOM). "
                         "Non-gated mirror of meta-llama/Llama-3.2-1B.")
-    p.add_argument("--lam", type=float, default=1.0, help="JEPA weight; 0 = baseline.")
+    p.add_argument("--lam", type=float, default=2.0,
+               help="JEPA weight; 0 = baseline. Paper's pretraining config: lambda=2.")
     p.add_argument("--shuffle-pairs", action="store_true",
                    help="THE CONTROL: pair each description with a random other regex "
                         "in the JEPA term only.")
-    p.add_argument("--n-pred-tokens", type=int, default=1, help="k [PRED] tokens.")
-    p.add_argument("--epochs", type=int, default=10)
+    p.add_argument("--n-pred-tokens", type=int, default=3,
+               help="k [PRED] tokens. Paper's pretraining config: k=3.")
+    p.add_argument("--epochs", type=int, default=4,
+               help="Their code fixes epochs to 4.")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--grad-accum", type=int, default=1)
-    p.add_argument("--lr", type=float, default=1e-4)
+    p.add_argument("--lr", type=float, default=8e-5,
+               help="Paper's pretraining lr.")
     p.add_argument("--weight-decay", type=float, default=0.1)
     p.add_argument("--max-len", type=int, default=128)
     p.add_argument("--grad-ckpt", action="store_true")
